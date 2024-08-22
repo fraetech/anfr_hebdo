@@ -1,3 +1,4 @@
-.env
+.env    
+*.html
 *.csv
-/files/out/index.html
+!files/cc_insee/cc_insee.csv
