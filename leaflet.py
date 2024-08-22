@@ -41,8 +41,15 @@ def get_icon_path(operateur, action_label, files_path):
         'ORANGE': 'ora',
         'FREE MOBILE': 'fmb',
         'SFR': 'sfr',
-        'BOUYGUES TELECOM': 'byt'
+        'BOUYGUES TELECOM': 'byt',
+        'TELCO OI': 'fmb',
+        'SRR': 'sfr',
+        'MISC': 'misc'
     }
+
+    if operateur not in operateur_map.keys():
+        operateur = 'MISC'
+
     action_map = {
         'Ajout': 'ajo',
         'Activation': 'act',
