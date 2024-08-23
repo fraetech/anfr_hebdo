@@ -5,11 +5,15 @@ import os
 import shutil
 from datetime import datetime, timedelta
 import requests
+import subprocess
 
 def log_message(message):
     """Fonction de log pour affichier un timestamp."""
     timestamp = datetime.now().strftime("%d/%m/%Y à %H:%M:%S")
     print(f"{timestamp} -> {message}")
+
+def send_sms(script_sms, message):
+    subprocess.run(["python", script_sms, message])
 
 def download_data(url, save_path):
     """Télécharge les données depuis l'URL spécifiée et les sauvegarde dans le fichier indiqué."""
@@ -23,7 +27,7 @@ def download_data(url, save_path):
         log_message(f"FATAL: Échec du téléchargement des données - {e}")
         raise SystemExit(1)
     
-def csv_files_update(path_new_csv):
+def csv_files_update(path_new_csv, path_script_sms):
     """Détermine les CSV entre lesquels il faut effectuer la comparaison à partir de leurs horodatages."""
     # Obtenir l'horodatage actuel
     actual_timestamp = datetime.now().strftime("%d_%m_%Y_%H_%M_%S")
@@ -35,8 +39,8 @@ def csv_files_update(path_new_csv):
     
     # Calcul des dates limites
     date = datetime.now()
-    date_limite_sup = date - timedelta(days=2)
-    date_limite_inf = date - timedelta(days=12)
+    date_limite_sup = date - timedelta(days=1)
+    date_limite_inf = date - timedelta(days=16)
     
     # Initialiser la variable pour le fichier le plus récent dans l'intervalle
     old_csv_path = None
@@ -49,17 +53,17 @@ def csv_files_update(path_new_csv):
         # Extraire l'horodatage du fichier
         file_timestamp = datetime.strptime(fichier[4:-4], "%d_%m_%Y_%H_%M_%S")
         
-        # Supprimer les fichiers plus vieux que 12 jours
+        # Supprimer les fichiers plus vieux que 16 jours
         if file_timestamp < date_limite_inf:
             os.remove(path_check_file)
         
-        # Trouver le fichier dans l'intervalle de 2 jours à 12 jours
+        # Trouver le fichier dans l'intervalle de 1 jour à 16 jours
         elif date_limite_inf <= file_timestamp <= date_limite_sup:
             diff = date - file_timestamp
             if diff < min_diff:
                 min_diff = diff
                 old_csv_path = path_check_file
-    
+    send_sms(path_script_sms, f"MAJ_ANFR: Comparaison entre : {old_csv_path} et : {current_csv_path}. TBC.")
     return old_csv_path, current_csv_path
 
 def rename_old_file(old_path, new_path):
@@ -128,6 +132,7 @@ def main(no_file_update, no_download, no_compare, no_write, debug):
     # Spécifie les chemins des fichiers
     path_app = os.path.dirname(os.path.abspath(__file__))
     download_path = os.path.join(path_app, 'files', 'from_anfr', 'maj_last.csv')
+    path_script_sms = os.path.join('home', 'pi', 'dim_brest', 'EnvoiSMS.py')
 
     # Télécharge les données
     if not no_download:
@@ -139,7 +144,7 @@ def main(no_file_update, no_download, no_compare, no_write, debug):
 
     # Détermine les CSV entre lesquels il faut faire la comparaison
     if not no_file_update:
-        old_csv_path, current_csv_path = csv_files_update(download_path)
+        old_csv_path, current_csv_path = csv_files_update(download_path, path_script_sms)
         log_message(f'INFO: Comparaison entre {old_csv_path} et {current_csv_path}')
     else:
         log_message(f' Mise à jour des fichiers CSV sautée : demandé par argument')

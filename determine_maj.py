@@ -23,7 +23,7 @@ def run_script(script_name):
         log_message(f"FATAL: Une erreur inattendue est survenue lors de l'exécution de {script_name}: {e}")
         sys.exit(1)
 
-def check_and_execute_script(url, file_path, script_to_execute):
+def check_and_execute_script(url, file_path, script_to_execute, path_script_sms):
     """Détermine si une MAJ a eu lieu en se basant sur le nombre de lignes présentes sur la page data.anfr.fr, et lance le script si besoin est."""
     try:
         # Étape 1 : Charger le nombre de lignes depuis le fichier
@@ -57,15 +57,20 @@ def check_and_execute_script(url, file_path, script_to_execute):
             log_message(f"INFO: Nombre de lignes précédent : {old_nombre_lignes}")
 
             # Étape 5 : Comparer les nombres de lignes et exécuter le script si nécessaire
-            if nombre_lignes > old_nombre_lignes:
-                log_message("INFO: Le nombre de lignes a augmenté. Démarrage de la MAJ...")
-                run_script(script_to_execute)
+            if nombre_lignes != old_nombre_lignes:
+                if abs(nombre_lignes - old_nombre_lignes) > 8000:
+                    log_message("INFO: La différence de ligne entre les deux fichiers est trop importante, la MAJ ne sera pas exécutée.")
+                    send_sms(path_script_sms, f"MAJ_ANFR: Ecart entre maj précédente et maj actuelle trop important. En attente vérification manuelle.")
+                else:
+                    log_message("INFO: Le nombre de lignes a augmenté. Démarrage de la MAJ...")
+                    send_sms(path_script_sms, f"MAJ_ANFR: Nb lignes précédent : {old_nombre_lignes}, nb lignes actuel : {nombre_lignes}. Lancement MAJ.")
+                    run_script(script_to_execute)
 
-                # Mettre à jour le fichier avec le nouveau nombre de lignes
-                with open(file_path, 'w') as file:
-                    file.write(str(nombre_lignes))
+                    # Mettre à jour le fichier avec le nouveau nombre de lignes
+                    with open(file_path, 'w') as file:
+                        file.write(str(nombre_lignes))
             else:
-                log_message("INFO: Le nombre de lignes n'a pas augmenté. La MAJ ne sera pas exécutée.")
+                log_message("INFO: Le nombre de lignes n'a été modifié. La MAJ ne sera pas exécutée.")
         else:
             log_message("ERROR: Le nombre de lignes n'a pas été trouvé dans la page.")
     
@@ -76,11 +81,15 @@ def check_and_execute_script(url, file_path, script_to_execute):
     except Exception as e:
         log_message(f"ERROR: Une erreur inattendue s'est produite : {e}")
 
+def send_sms(script_sms, message):
+    subprocess.run(["python", script_sms, message])
+
 # Exemple d'utilisation de la fonction
 url = "https://data.anfr.fr/visualisation/information/?id=observatoire_2g_3g_4g"
 # Spécifie les chemins des fichiers
 path_app = os.path.dirname(os.path.abspath(__file__))
 file_path = os.path.join(path_app, 'files', 'api', 'from_html_nb_rows.txt')
 script_to_execute = os.path.join(path_app, 'core.py')
+path_script_sms = os.path.join('home', 'pi', 'dim_brest', 'EnvoiSMS.py')
 
 check_and_execute_script(url, file_path, script_to_execute)
