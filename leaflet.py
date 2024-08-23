@@ -7,6 +7,9 @@ from folium import Map, Marker, Popup
 from folium.plugins import MarkerCluster
 from folium.features import CustomIcon
 from datetime import datetime
+from branca.element import MacroElement
+from jinja2 import Template
+from datetime import datetime
 
 def log_message(message):
     """Fonction de log pour affichier un timestamp."""
@@ -159,6 +162,50 @@ def ajouter_marqueurs(dataframe, carte, files_path):
         except Exception as e:
             log_message(f"ERROR: Erreur lors de l'ajout des marqueurs pour le support {support_id}: {e}")
 
+def ajouter_html(carte):
+    timestamp = datetime.now().strftime("%d/%m/%Y à %H:%M:%S")
+    custom_html = f"""
+<div id="customMessage" style="position: fixed; 
+            bottom: 50px; left: 50px; 
+            z-index: 1000; 
+            background-color: white; 
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);">
+    <button id="closeButton" style="position: absolute; 
+            top: 5px; right: 5px; 
+            background-color: transparent; 
+            border: none; 
+            font-size: 18px; 
+            cursor: pointer;">&times;</button>
+    <h4>Carte MAJ ANFR du {timestamp}</h4>
+    <p>Vous pouvez choisir les actions à afficher à l'aide du layer control (en haut à droite).<br>
+    Une question ? Une remarque ? Une suggestion ? -> <a href='https://github.com/fraetech/maj-hebdo/issues' target='_blank'>GitHub MAJ_Hebdo</a>.<br>
+    Ou sur mes réseaux sociaux (@fraetech).<br>
+    PS : Ceci est un algorithme déclenché automatiquement à l'heure précisée ci-dessus.<br> 
+    Il peut y avoir des erreurs. Il suffit d'attendre et ça devrait se corriger tout seul.<br>
+    <i>(hopefully..)</i>.</p>
+</div>"""
+    
+    custom_html += """
+<script>
+    // Fermer le message lorsque le bouton est cliqué
+    document.getElementById('closeButton').onclick = function() {
+        document.getElementById('customMessage').style.display = 'none';
+    };
+</script>
+"""
+    class CustomElement(MacroElement):
+        def __init__(self, html):
+            super().__init__()
+            self._name = "CustomElement"
+            self.html = html
+
+        def render(self, **kwargs):
+            template = Template(self.html)
+            return template.render()
+    carte.get_root().html.add_child(CustomElement(custom_html))
+
 def enregistrer_carte(carte, nom_fichier):
     """Enregistre la carte Folium dans un le fichier HTML final."""
     try:
@@ -194,6 +241,8 @@ def main(no_load, no_create_map, no_indicators, no_save_map, debug):
             log_message('INFO: Marqueurs ajoutés sur la carte')
         else:
             log_message(f' Ajout des marqueurs sur la carte sauté : demandé par argument')
+
+        ajouter_html(my_map)
 
         if not no_save_map:
             enregistrer_carte(my_map, carte_path)

@@ -36,7 +36,7 @@ def copy_file_to_repo(local_dir, file_path_in_repo, path_file_to_copy):
     log_message(f"INFO: Nouveau fichier {path_file_to_copy} copié dans le dépôt.")
 
 def commit_modif(repo):
-    """"/!\ Fonction adaptée uniquement au cas présent de la MAJ Hebdo de l'ANFR /!\""""
+    """ATTENTION !!! Fonction adaptée uniquement au cas présent de la MAJ Hebdo de l'ANFR !!! ATTENTION"""
     now = datetime.now()
     repo.git.add("index.html")
     repo.index.commit(f"Maj du {now.strftime('%d/%m/%Y à %H:%M:%S')}")
