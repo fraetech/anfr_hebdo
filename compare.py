@@ -132,7 +132,7 @@ def main(no_file_update, no_download, no_compare, no_write, debug):
     # Spécifie les chemins des fichiers
     path_app = os.path.dirname(os.path.abspath(__file__))
     download_path = os.path.join(path_app, 'files', 'from_anfr', 'maj_last.csv')
-    path_script_sms = os.path.join('home', 'pi', 'dim_brest', 'EnvoiSMS.py')
+    path_script_sms = os.path.join('dim_brest', 'EnvoiSMS.py')
 
     # Télécharge les données
     if not no_download:
