@@ -92,4 +92,4 @@ file_path = os.path.join(path_app, 'files', 'api', 'from_html_nb_rows.txt')
 script_to_execute = os.path.join(path_app, 'core.py')
 path_script_sms = os.path.join('home', 'pi', 'dim_brest', 'EnvoiSMS.py')
 
-check_and_execute_script(url, file_path, script_to_execute)
+check_and_execute_script(url, file_path, script_to_execute, path_script_sms)
