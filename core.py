@@ -5,10 +5,10 @@ import sys
 import os
 from datetime import datetime
 
-def log_message(message):
-    """Fonction de log pour affichier un timestamp."""
+def log_message(message, level="INFO"):
+    """Fonction de log pour afficher un timestamp avec le niveau d'erreur."""
     timestamp = datetime.now().strftime("%d/%m/%Y à %H:%M:%S")
-    print(f"{timestamp} -> {message}")
+    print(f"{timestamp} [{level}] -> {message}")
 
 def run_script(script_name, *args):
     """Exécute un script Python avec des arguments optionnels."""
@@ -16,10 +16,10 @@ def run_script(script_name, *args):
         result = subprocess.run([sys.executable, script_name, *args], check=True)
         return result.returncode
     except subprocess.CalledProcessError as e:
-        log_message(f"FATAL: Le script {script_name} a échoué avec le code de retour {e.returncode}. Erreur: {e}")
+        log_message(f"Le script {script_name} a échoué avec le code de retour {e.returncode}. Erreur: {e}", "FATAL")
         sys.exit(e.returncode)
     except Exception as e:
-        log_message(f"FATAL: Une erreur inattendue est survenue lors de l'exécution de {script_name}: {e}")
+        log_message(f"Une erreur inattendue est survenue lors de l'exécution de {script_name}: {e}", "FATAL")
         sys.exit(1)
 
 def main(args):
@@ -32,7 +32,7 @@ def main(args):
     path_github = os.path.join(path_app, 'github.py')
 
     if not args.skip_compare:
-        log_message("INFO: Exécution de la comparaison des données avec compare.py")
+        log_message("Exécution de la comparaison des données avec compare.py")
         compare_args = []
         if args.no_file_update:
             compare_args.append('--no-file-update')
@@ -48,7 +48,7 @@ def main(args):
         run_script(path_compare, *compare_args)
 
     if not args.skip_pretrait:
-        log_message("INFO: Exécution du prétraitement des données avec pretrait.py")
+        log_message("Exécution du prétraitement des données avec pretrait.py")
         pretrait_args = []
         if args.no_insee:
             pretrait_args.append('--no-insee')
@@ -60,7 +60,7 @@ def main(args):
         run_script(path_pretrait, *pretrait_args)
     
     if not args.skip_leaflet:
-        log_message("INFO: Génération de la carte avec leaflet.py")
+        log_message("Génération de la carte avec leaflet.py")
         leaflet_args = []
         if args.no_load:
             leaflet_args.append('--no-load')
@@ -76,7 +76,7 @@ def main(args):
         run_script(path_leaflet, *leaflet_args)
 
     if not args.skip_github:
-        log_message("INFO: Push vers GitHub avec github.py")
+        log_message("Push vers GitHub avec github.py")
         github_args = []
         # ARGS ARGS ARGS
         if args.debug:
