@@ -2,7 +2,6 @@ import argparse
 import pandas as pd
 import time
 import os
-import shutil
 from datetime import datetime, timedelta
 import requests
 import subprocess
@@ -16,26 +15,40 @@ def send_sms(script_sms, message):
     subprocess.run(["python", script_sms, message])
 
 def download_data(url, save_path):
-    """Télécharge les données depuis l'URL spécifiée et les sauvegarde dans le fichier indiqué."""
+    """Télécharge les données depuis l'URL spécifiée et les sauvegarde avec le nom d'origine du fichier."""
     try:
         response = requests.get(url)
         response.raise_for_status()
+        
+        # Extraire le nom du fichier depuis l'en-tête 'Content-Disposition'
+        filename = None
+        if 'Content-Disposition' in response.headers:
+            content_disposition = response.headers['Content-Disposition']
+            if 'filename=' in content_disposition:
+                filename = content_disposition.split('filename=')[-1].strip('"')
+
+        # Si le nom du fichier n'est pas trouvé dans l'en-tête, l'extraire de l'URL
+        if filename is None:
+            filename = os.path.basename(url)
+
+        # Si save_path est fourni, utiliser ce chemin, sinon utiliser le nom du fichier extrait
+        if save_path is None:
+            save_path = filename
+        else:
+            save_path = os.path.join(save_path, filename)
+
+        # Enregistrer le contenu du fichier
         with open(save_path, 'wb') as file:
             file.write(response.content)
+        
         log_message("Téléchargement des données terminé avec succès.")
+        return save_path
     except requests.exceptions.RequestException as e:
         log_message(f"Échec du téléchargement des données - {e}", "FATAL")
         raise SystemExit(1)
     
 def csv_files_update(path_new_csv, path_script_sms):
     """Détermine les CSV entre lesquels il faut effectuer la comparaison à partir de leurs horodatages."""
-    # Obtenir l'horodatage actuel
-    actual_timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    
-    # Renommer le fichier en maj_YYYYMMDDHHMMSS_observatoire_2g_3g_4g.csv
-    new_name_curr_csv = f"{actual_timestamp}_observatoire_2g_3g_4g.csv"
-    current_csv_path = os.path.join(os.path.dirname(path_new_csv), new_name_curr_csv)
-    shutil.move(path_new_csv, current_csv_path)
     
     # Calcul des dates limites
     date = datetime.now()
@@ -47,8 +60,8 @@ def csv_files_update(path_new_csv, path_script_sms):
     min_diff = timedelta.max
     
     # Parcourir les fichiers dans le répertoire
-    for fichier in os.listdir(os.path.dirname(current_csv_path)):
-        path_check_file = os.path.join(os.path.dirname(current_csv_path), fichier)
+    for fichier in os.listdir(os.path.dirname(path_new_csv)):
+        path_check_file = os.path.join(os.path.dirname(path_new_csv), fichier)
         
         # Extraire l'horodatage du fichier
         try:
@@ -69,8 +82,8 @@ def csv_files_update(path_new_csv, path_script_sms):
                 min_diff = diff
                 old_csv_path = path_check_file
 
-    send_sms(path_script_sms, f"MAJ_ANFR: Comparaison entre : {old_csv_path} et : {current_csv_path}. TBC.")
-    return old_csv_path, current_csv_path
+    send_sms(path_script_sms, f"MAJ_ANFR: Comparaison entre : {old_csv_path} et : {path_new_csv}. TBC.")
+    return old_csv_path, path_new_csv
 
 def rename_old_file(old_path, new_path):
     """Renomme l'actuel fichier nouveau en ancien, et supprime l'ancien fichier."""
@@ -137,20 +150,20 @@ def main(no_file_update, no_download, no_compare, no_write, debug):
     """Fonction main régissant l'intégralité du programme."""
     # Spécifie les chemins des fichiers
     path_app = os.path.dirname(os.path.abspath(__file__))
-    download_path = os.path.join(path_app, 'files', 'from_anfr', 'maj_last.csv')
+    download_path = os.path.join(path_app, 'files', 'from_anfr')
     path_script_sms = os.path.join('dim_brest', 'EnvoiSMS.py')
 
     # Télécharge les données
     if not no_download:
         log_message("Début du téléchargement du fichier de data.anfr.fr")
-        download_data("https://data.anfr.fr/api/records/2.0/downloadfile/format=csv&resource_id=88ef0887-6b0f-4d3f-8545-6d64c8f597da&use_labels_for_header=true", download_path)
+        curr_csv_path = download_data("https://data.anfr.fr/api/records/2.0/downloadfile/format=csv&resource_id=88ef0887-6b0f-4d3f-8545-6d64c8f597da&use_labels_for_header=true", download_path)
         log_message("Téléchargment terminé")
     else:
         log_message("Téléchargement sauté : demandé par argument", "WARN")
 
     # Détermine les CSV entre lesquels il faut faire la comparaison
     if not no_file_update:
-        old_csv_path, current_csv_path = csv_files_update(download_path, path_script_sms)
+        old_csv_path, current_csv_path = csv_files_update(curr_csv_path, path_script_sms)
         log_message(f"Comparaison entre {old_csv_path} et {current_csv_path}")
     else:
         log_message(f"Mise à jour des fichiers CSV sautée : demandé par argument", "WARN")
