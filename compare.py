@@ -42,6 +42,7 @@ def csv_files_update(path_new_csv, path_script_sms):
             # Extraire uniquement la partie date de la chaîne de caractères
             file_timestamp_str = fichier.split('_')[0]
             file_timestamp = datetime.strptime(file_timestamp_str, "%Y%m%d%H%M%S")
+            print(file_timestamp)
         except ValueError:
             continue  # Ignorer les fichiers qui ne correspondent pas au format attendu
 
@@ -52,10 +53,15 @@ def csv_files_update(path_new_csv, path_script_sms):
         # Trouver le fichier dans l'intervalle de 1 jour à 16 jours
         elif date_limite_inf <= file_timestamp <= date_limite_sup:
             diff = date - file_timestamp
-            if diff < min_diff:
+            if diff < min_diff and path_check_file != path_new_csv:
                 min_diff = diff
                 old_csv_path = path_check_file
-
+    
+    # Si old_csv_path est toujours None (c'est-à-dire aucun fichier trouvé qui diffère de path_new_csv),
+    # il faut renvoyer un message d'erreur ou gérer cela selon vos besoins
+    if old_csv_path is None:
+        raise FileNotFoundError("Aucun fichier ancien trouvé dans l'intervalle qui soit différent de path_new_csv.")
+    
     functions_anfr.send_sms(path_script_sms, f"MAJ_ANFR: Comparaison entre : {old_csv_path} et : {path_new_csv}. TBC.")
     return old_csv_path, path_new_csv
 
