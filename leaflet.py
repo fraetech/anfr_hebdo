@@ -10,11 +10,7 @@ from datetime import datetime
 from branca.element import MacroElement
 from jinja2 import Template
 from datetime import datetime
-
-def log_message(message, level="INFO"):
-    """Fonction de log pour afficher un timestamp avec le niveau d'erreur."""
-    timestamp = datetime.now().strftime("%d/%m/%Y à %H:%M:%S")
-    print(f"{timestamp} [{level}] -> {message}")
+import functions_anfr
 
 def charger_donnees(pretraite_path):
     """Charge les données depuis un CSV dans un DataFrame Pandas."""
@@ -23,7 +19,7 @@ def charger_donnees(pretraite_path):
     try:
         pretraite_df = pd.read_csv(pretraite_path, sep=',')
     except Exception as e:
-        log_message(f"Erreur lors du chargement du fichier CSV: {e}", "FATAL")
+        functions_anfr.log_message(f"Erreur lors du chargement du fichier CSV: {e}", "FATAL")
         raise
     return pretraite_df
 
@@ -32,7 +28,7 @@ def creer_carte():
     try:
         carte = Map(location=[48.8566, 2.3522], zoom_start=6)
     except Exception as e:
-        log_message(f"Erreur lors de la création de la carte: {e}", "FATAL")
+        functions_anfr.log_message(f"Erreur lors de la création de la carte: {e}", "FATAL")
         raise
     return carte
 
@@ -68,7 +64,7 @@ def get_icon_path(operateur, action_label, files_path):
             icon_filename = f"misc_{action_map[action_label].lower()}.png"
             icon_path = os.path.join(icon_directory, icon_filename)
         except Exception as e:
-            log_message(f"Impossible de trouver l'icône {icon_filename}: {e}", "FATAL")
+            functions_anfr.log_message(f"Impossible de trouver l'icône {icon_filename}: {e}", "FATAL")
             raise
     return icon_path
 
@@ -91,7 +87,7 @@ def ajouter_marqueurs(dataframe, carte, files_path):
 
         folium.LayerControl().add_to(carte)
     except Exception as e:
-        log_message(f"Erreur lors de la création des groupes de fonctionnalités ou des clusters: {e}", "FATAL")
+        functions_anfr.log_message(f"Erreur lors de la création des groupes de fonctionnalités ou des clusters: {e}", "FATAL")
         raise
 
     support_ids = set()
@@ -160,7 +156,7 @@ def ajouter_marqueurs(dataframe, carte, files_path):
                     )
                     marker.add_to(cluster)
         except Exception as e:
-            log_message(f"Erreur lors de l'ajout des marqueurs pour le support {support_id}: {e}", "ERROR")
+            functions_anfr.log_message(f"Erreur lors de l'ajout des marqueurs pour le support {support_id}: {e}", "ERROR")
 
 def ajouter_html(carte):
     timestamp = datetime.now().strftime("%d/%m/%Y à %H:%M:%S")
@@ -211,7 +207,7 @@ def enregistrer_carte(carte, nom_fichier):
     try:
         carte.save(nom_fichier)
     except Exception as e:
-        log_message(f"Erreur lors de la sauvegarde de la carte: {e}", "FATAL")
+        functions_anfr.log_message(f"Erreur lors de la sauvegarde de la carte: {e}", "FATAL")
         raise
 
 def main(no_load, no_create_map, no_indicators, no_save_map, debug):
@@ -225,34 +221,34 @@ def main(no_load, no_create_map, no_indicators, no_save_map, debug):
     try:
         if not no_load:
             pretraite_df = charger_donnees(pretraite_path)
-            log_message("Fichier CSV pretraite chargé")
+            functions_anfr.log_message("Fichier CSV pretraite chargé")
         else:
-            log_message("Chargement fichier pretraite sauté : demandé par argument", "WARN")
+            functions_anfr.log_message("Chargement fichier pretraite sauté : demandé par argument", "WARN")
 
         if not no_create_map:
             my_map = creer_carte()
             if debug:
-                log_message("Carte créée", "DEBUG")
+                functions_anfr.log_message("Carte créée", "DEBUG")
         else:
-            log_message(f' Création de la carte sautée : demandé par argument')
+            functions_anfr.log_message(f' Création de la carte sautée : demandé par argument')
 
         if not no_indicators:
             ajouter_marqueurs(pretraite_df, my_map, files_path)
-            log_message("Marqueurs ajoutés sur la carte")
+            functions_anfr.log_message("Marqueurs ajoutés sur la carte")
         else:
-            log_message("Ajout des marqueurs sur la carte sauté : demandé par argument", "WARN")
+            functions_anfr.log_message("Ajout des marqueurs sur la carte sauté : demandé par argument", "WARN")
 
         ajouter_html(my_map)
 
         if not no_save_map:
             enregistrer_carte(my_map, carte_path)
-            log_message("Carte enregistrée")
+            functions_anfr.log_message("Carte enregistrée")
         else:
-            log_message("La sauvegarde de la carte a été sautée : demandé par argument", "WARN")
+            functions_anfr.log_message("La sauvegarde de la carte a été sautée : demandé par argument", "WARN")
     except FileNotFoundError as e:
-        log_message(f"Un fichier requis est introuvable: {e}", "FATAL")
+        functions_anfr.log_message(f"Un fichier requis est introuvable: {e}", "FATAL")
     except Exception as e:
-        log_message(f"Une erreur inattendue est survenue: {e}", "FATAL")
+        functions_anfr.log_message(f"Une erreur inattendue est survenue: {e}", "FATAL")
         raise
 
 if __name__ == "__main__":

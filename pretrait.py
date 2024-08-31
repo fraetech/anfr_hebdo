@@ -5,11 +5,7 @@ import os
 import csv
 from datetime import datetime
 import re
-
-def log_message(message, level="INFO"):
-    """Fonction de log pour afficher un timestamp avec le niveau d'erreur."""
-    timestamp = datetime.now().strftime("%d/%m/%Y à %H:%M:%S")
-    print(f"{timestamp} [{level}] -> {message}")
+import functions_anfr
 
 def load_insee_data(filepath, encoding='utf-8'):
     """Charge les données issues du fichier de concordance entre code postal, nom de ville et code INSEE."""
@@ -23,14 +19,14 @@ def load_insee_data(filepath, encoding='utf-8'):
                         'nom_commune': row[1],
                         'code_postal': row[2]
                     }
-        log_message("Données INSEE chargées avec succès.")
+        functions_anfr.log_message("Données INSEE chargées avec succès.")
     except UnicodeDecodeError:
-        log_message(f"Erreur de décodage avec l'encodage {encoding}.", "ERROR")
+        functions_anfr.log_message(f"Erreur de décodage avec l'encodage {encoding}.", "ERROR")
     except FileNotFoundError:
-        log_message(f"Fichier INSEE '{filepath}' introuvable.", "FATAL")
+        functions_anfr.log_message(f"Fichier INSEE '{filepath}' introuvable.", "FATAL")
         raise SystemExit(1)
     except Exception as e:
-        log_message(f"Problème lors du chargement des données INSEE - {e}", "ERROR")
+        functions_anfr.log_message(f"Problème lors du chargement des données INSEE - {e}", "ERROR")
     return insee_data
 
 def conv_insee(code_insee, insee_data):
@@ -51,7 +47,7 @@ def maj_addr(row, insee_data):
         cc_insee = row['code_insee']
         return addr + " " + conv_insee(cc_insee, insee_data)
     except KeyError as e:
-        log_message(f"Clé manquante dans les données de la ligne - {e}", "ERROR")
+        functions_anfr.log_message(f"Clé manquante dans les données de la ligne - {e}", "ERROR")
         return "00404 ERR ADDRESS"
 
 def preprocess_csv(file_path, source):
@@ -59,16 +55,16 @@ def preprocess_csv(file_path, source):
     try:
         df = pd.read_csv(file_path)
         df['source'] = source
-        log_message(f"Chargement du fichier '{file_path}' terminé avec succès.")
+        functions_anfr.log_message(f"Chargement du fichier '{file_path}' terminé avec succès.")
         return df
     except FileNotFoundError:
-        log_message(f"Le fichier '{file_path}' est introuvable.", "FATAL")
+        functions_anfr.log_message(f"Le fichier '{file_path}' est introuvable.", "FATAL")
         raise SystemExit(1)
     except pd.errors.ParserError as e:
-        log_message(f"Erreur de parsing lors du chargement du fichier '{file_path}' - {e}", "ERROR")
+        functions_anfr.log_message(f"Erreur de parsing lors du chargement du fichier '{file_path}' - {e}", "ERROR")
         return pd.DataFrame()  # Return an empty DataFrame to allow the program to continue
     except Exception as e:
-        log_message(f"Problème lors du chargement du fichier '{file_path}' - {e}", "ERROR")
+        functions_anfr.log_message(f"Problème lors du chargement du fichier '{file_path}' - {e}", "ERROR")
         return pd.DataFrame()  # Same as above
 
 def determine_action(row):
@@ -84,7 +80,7 @@ def determine_action(row):
         elif row['source'] == 'comp_removed.csv':
             return 'SUP'
     except KeyError as e:
-        log_message(f"Clé manquante pour déterminer l'action - {e}", "ERROR")
+        functions_anfr.log_message(f"Clé manquante pour déterminer l'action - {e}", "ERROR")
         return "UNKNOWN"
     
 def sort_technologies(row):
@@ -119,7 +115,7 @@ def merge_and_process(added_path, modified_path, removed_path, output_path, inse
         removed_df = preprocess_csv(removed_path, 'comp_removed.csv')
 
         if added_df.empty or modified_df.empty or removed_df.empty:
-            log_message("Un ou plusieurs fichiers de données sont vides ou n'ont pas été chargés correctement.", "ERROR")
+            functions_anfr.log_message("Un ou plusieurs fichiers de données sont vides ou n'ont pas été chargés correctement.", "ERROR")
             return
 
         added_df['action'] = 'AJO'
@@ -143,9 +139,9 @@ def merge_and_process(added_path, modified_path, removed_path, output_path, inse
         final_df = final_df.sort_values(['id_support', 'operateur', 'action']).reset_index(drop=True)
 
         final_df.to_csv(output_path, index=False)
-        log_message(f"Fichier final '{output_path}' généré avec succès.")
+        functions_anfr.log_message(f"Fichier final '{output_path}' généré avec succès.")
     except Exception as e:
-        log_message(f"Échec lors du traitement des fichiers - {e}", "FATAL")
+        functions_anfr.log_message(f"Échec lors du traitement des fichiers - {e}", "FATAL")
         raise SystemExit(1)
 
 def main(no_insee, no_process, debug):
@@ -161,14 +157,14 @@ def main(no_insee, no_process, debug):
     if not no_insee:
         insee_data = load_insee_data(insee_path, encoding='ISO-8859-1')
     else:
-        log_message("Chargement INSEE sauté : demandé par argument", "WARN")
+        functions_anfr.log_message("Chargement INSEE sauté : demandé par argument", "WARN")
         insee_data = {}
 
     if not no_process:
         merge_and_process(added_path, modified_path, removed_path, pretraite_path, insee_data)
-        log_message("Prétraitement terminé")
+        functions_anfr.log_message("Prétraitement terminé")
     else:
-        log_message("Prétraitement sauté : demandé par argument", "WARN")
+        functions_anfr.log_message("Prétraitement sauté : demandé par argument", "WARN")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Control which functions to skip.")

@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import argparse
 import pandas as pd
 import time
@@ -5,46 +6,19 @@ import os
 from datetime import datetime, timedelta
 import requests
 import subprocess
-
-def log_message(message, level="INFO"):
-    """Fonction de log pour afficher un timestamp avec le niveau d'erreur."""
-    timestamp = datetime.now().strftime("%d/%m/%Y à %H:%M:%S")
-    print(f"{timestamp} [{level}] -> {message}")
-
-def send_sms(script_sms, message):
-    subprocess.run(["python", script_sms, message])
+import functions_anfr
 
 def download_data(url, save_path):
-    """Télécharge les données depuis l'URL spécifiée et les sauvegarde avec le nom d'origine du fichier."""
+    """Télécharge les données depuis l'URL spécifiée et les sauvegarde dans le fichier indiqué."""
     try:
         response = requests.get(url)
         response.raise_for_status()
-        
-        # Extraire le nom du fichier depuis l'en-tête 'Content-Disposition'
-        filename = None
-        if 'Content-Disposition' in response.headers:
-            content_disposition = response.headers['Content-Disposition']
-            if 'filename=' in content_disposition:
-                filename = content_disposition.split('filename=')[-1].strip('"')
-
-        # Si le nom du fichier n'est pas trouvé dans l'en-tête, l'extraire de l'URL
-        if filename is None:
-            filename = os.path.basename(url)
-
-        # Si save_path est fourni, utiliser ce chemin, sinon utiliser le nom du fichier extrait
-        if save_path is None:
-            save_path = filename
-        else:
-            save_path = os.path.join(save_path, filename)
-
-        # Enregistrer le contenu du fichier
         with open(save_path, 'wb') as file:
             file.write(response.content)
-        
-        log_message("Téléchargement des données terminé avec succès.")
+        functions_anfr.log_message(f"INFO: Téléchargement des données terminé avec succès.")
         return save_path
     except requests.exceptions.RequestException as e:
-        log_message(f"Échec du téléchargement des données - {e}", "FATAL")
+        functions_anfr.log_message(f"FATAL: Échec du téléchargement des données - {e}")
         raise SystemExit(1)
     
 def csv_files_update(path_new_csv, path_script_sms):
@@ -82,7 +56,7 @@ def csv_files_update(path_new_csv, path_script_sms):
                 min_diff = diff
                 old_csv_path = path_check_file
 
-    send_sms(path_script_sms, f"MAJ_ANFR: Comparaison entre : {old_csv_path} et : {path_new_csv}. TBC.")
+    functions_anfr.send_sms(path_script_sms, f"MAJ_ANFR: Comparaison entre : {old_csv_path} et : {path_new_csv}. TBC.")
     return old_csv_path, path_new_csv
 
 def rename_old_file(old_path, new_path):
@@ -92,9 +66,9 @@ def rename_old_file(old_path, new_path):
             if os.path.exists(new_path):
                 os.remove(new_path)
             os.rename(old_path, new_path)
-        log_message(f"Fichier '{old_path}' renommé en '{new_path}'.")
+        functions_anfr.log_message(f"Fichier '{old_path}' renommé en '{new_path}'.")
     except OSError as e:
-        log_message(f"Échec du renommage des fichiers - {e}", "ERROR")
+        functions_anfr.log_message(f"Échec du renommage des fichiers - {e}", "ERROR")
 
 def load_and_process_csv(file_path):
     """Charge le fichier CSV, effectue le prétraitement et renvoie le DataFrame résultant."""
@@ -106,13 +80,13 @@ def load_and_process_csv(file_path):
         df = df.rename(columns={'adm_lb_nom': 'operateur', 'sup_id': 'id_support', 'emr_lb_systeme': 'technologie', 'adr_lb_lieu': 'adresse0', 'adr_lb_add1': 'adresse1', 'adr_lb_add2': 'adresse2', 'adr_lb_add3': 'adresse3', 'com_cd_insee': 'code_insee', 'coordonnees': 'coordonnees', 'statut': 'statut'})
         return df
     except FileNotFoundError:
-        log_message(f"Le fichier '{file_path}' est introuvable.", "FATAL")
+        functions_anfr.log_message(f"Le fichier '{file_path}' est introuvable.", "FATAL")
         raise SystemExit(1)
     except pd.errors.ParserError as e:
-        log_message(f"Erreur lors de l'analyse du fichier CSV '{file_path}' - {e}", "FATAL")
+        functions_anfr.log_message(f"Erreur lors de l'analyse du fichier CSV '{file_path}' - {e}", "FATAL")
         raise SystemExit(1)
     except Exception as e:
-        log_message(f"Problème lors du chargement du fichier CSV '{file_path}' - {e}", "ERROR")
+        functions_anfr.log_message(f"Problème lors du chargement du fichier CSV '{file_path}' - {e}", "ERROR")
         return None
 
 def compare_data(df_old, df_current):
@@ -131,10 +105,10 @@ def compare_data(df_old, df_current):
 
         return df_added, df_removed, df_modified
     except KeyError as e:
-        log_message(f"Clé manquante lors de la comparaison des données - {e}", "ERROR")
+        functions_anfr.log_message(f"Clé manquante lors de la comparaison des données - {e}", "ERROR")
         return None, None, None  # On retourne des valeurs vides afin de ne pas casser la suite
     except Exception as e:
-        log_message(f"Erreur lors de la comparaison des données - {e}", "ERROR")
+        functions_anfr.log_message(f"Erreur lors de la comparaison des données - {e}", "ERROR")
         return None, None, None
 
 def write_results(df, file_path, message):
@@ -142,9 +116,9 @@ def write_results(df, file_path, message):
     try:
         df.to_csv(file_path, index=False)
         nb_rows = len(df)
-        log_message(f"{message} Il y a {nb_rows} lignes.")
+        functions_anfr.log_message(f"{message} Il y a {nb_rows} lignes.")
     except IOError as e:
-        log_message(f"Impossible d'écrire dans le fichier '{file_path}' - {e}", "ERROR")
+        functions_anfr.log_message(f"Impossible d'écrire dans le fichier '{file_path}' - {e}", "ERROR")
 
 def main(no_file_update, no_download, no_compare, no_write, debug):
     """Fonction main régissant l'intégralité du programme."""
@@ -152,66 +126,69 @@ def main(no_file_update, no_download, no_compare, no_write, debug):
     path_app = os.path.dirname(os.path.abspath(__file__))
     download_path = os.path.join(path_app, 'files', 'from_anfr')
     path_script_sms = os.path.join('dim_brest', 'EnvoiSMS.py')
+    url = "https://data.anfr.fr/d4c/api/records/2.0/downloadfile/format=csv&resource_id=88ef0887-6b0f-4d3f-8545-6d64c8f597da&use_labels_for_header=true"
 
     # Télécharge les données
     if not no_download:
-        log_message("Début du téléchargement du fichier de data.anfr.fr")
-        curr_csv_path = download_data("https://data.anfr.fr/api/records/2.0/downloadfile/format=csv&resource_id=88ef0887-6b0f-4d3f-8545-6d64c8f597da&use_labels_for_header=true", download_path)
-        log_message("Téléchargment terminé")
+        filename_from_anfr = functions_anfr.get_filename_from_server(url)
+        download_path_r = os.path.join(download_path, filename_from_anfr)
+        functions_anfr.log_message("Début du téléchargement du fichier de data.anfr.fr")
+        curr_csv_path = download_data(url, download_path_r)
+        functions_anfr.log_message("Téléchargment terminé")
     else:
-        log_message("Téléchargement sauté : demandé par argument", "WARN")
+        functions_anfr.log_message("Téléchargement sauté : demandé par argument", "WARN")
 
     # Détermine les CSV entre lesquels il faut faire la comparaison
     if not no_file_update:
         old_csv_path, current_csv_path = csv_files_update(curr_csv_path, path_script_sms)
-        log_message(f"Comparaison entre {old_csv_path} et {current_csv_path}")
+        functions_anfr.log_message(f"Comparaison entre {old_csv_path} et {current_csv_path}")
     else:
-        log_message(f"Mise à jour des fichiers CSV sautée : demandé par argument", "WARN")
+        functions_anfr.log_message(f"Mise à jour des fichiers CSV sautée : demandé par argument", "WARN")
 
     start_time = time.time()
 
     # Comparaison des données
     if not no_compare:
-        log_message("Début de la comparaison")
+        functions_anfr.log_message("Début de la comparaison")
         # Charge et traite les anciennes données
         df_old = load_and_process_csv(old_csv_path)
         if debug:
-            log_message("Ancien CSV chargé", "DEBUG")
+            functions_anfr.log_message("Ancien CSV chargé", "DEBUG")
         # Charge et traite les nouvelles données
         df_current = load_and_process_csv(current_csv_path)
         if debug:
-            log_message("Nouveau CSV chargé", "DEBUG")
+            functions_anfr.log_message("Nouveau CSV chargé", "DEBUG")
 
         # Compare les données
         df_added, df_removed, df_modified = compare_data(df_old, df_current)
-        log_message("Comparaison terminée")
+        functions_anfr.log_message("Comparaison terminée")
     else:
         df_added, df_removed, df_modified = None, None, None
-        log_message("Comparaison sautée : demandé par argument", "WARN")
+        functions_anfr.log_message("Comparaison sautée : demandé par argument", "WARN")
 
     # Écriture des résultats
     if not no_write:
-        log_message("Début écriture des résultats")
+        functions_anfr.log_message("Début écriture des résultats")
         if df_removed is not None:
             if debug:
-                log_message("Début écriture résultats df_removed", "DEBUG")
+                functions_anfr.log_message("Début écriture résultats df_removed", "DEBUG")
             write_results(df_removed, os.path.join(path_app, 'files', 'compared', 'comp_removed.csv'), "Lignes supprimées : ")
         if df_modified is not None:
             if debug:
-                log_message("Début écriture résultats df_modified", "DEBUG")
+                functions_anfr.log_message("Début écriture résultats df_modified", "DEBUG")
             write_results(df_modified, os.path.join(path_app, 'files', 'compared', 'comp_modified.csv'), "Lignes modifiées : ")
         if df_added is not None:
             if debug:
-                log_message("Début écriture résultats df_added", "DEBUG")
+                functions_anfr.log_message("Début écriture résultats df_added", "DEBUG")
             write_results(df_added, os.path.join(path_app, 'files', 'compared', 'comp_added.csv'), "Nouvelles lignes : ")
-        log_message("Ecriture des résultats terminée")
+        functions_anfr.log_message("Ecriture des résultats terminée")
     else:
-        log_message("Ecriture des résultats sautée : demandé par argument", "WARN")
+        functions_anfr.log_message("Ecriture des résultats sautée : demandé par argument", "WARN")
 
     # Temps d'exécution
     end_time = time.time()
     duration = end_time - start_time
-    log_message(f"La comparaison est terminée et a pris {time.strftime('%H:%M:%S', time.gmtime(duration))} à se faire.")
+    functions_anfr.log_message(f"La comparaison est terminée et a pris {time.strftime('%H:%M:%S', time.gmtime(duration))} à se faire.")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Control which functions to skip.")
