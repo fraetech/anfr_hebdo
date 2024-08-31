@@ -5,7 +5,6 @@ import time
 import os
 from datetime import datetime, timedelta
 import requests
-import subprocess
 import functions_anfr
 
 def download_data(url, save_path):

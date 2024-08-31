@@ -3,7 +3,6 @@ import argparse
 import subprocess
 import sys
 import os
-from datetime import datetime
 import functions_anfr
 
 def run_script(script_name, *args):

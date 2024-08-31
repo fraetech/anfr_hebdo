@@ -1,9 +1,7 @@
 #!/usr/bin/env python
-import requests
 import os
 import sys
 import subprocess
-from datetime import datetime
 import functions_anfr
 
 def run_script(script_name):

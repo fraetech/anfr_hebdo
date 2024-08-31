@@ -177,8 +177,7 @@ def ajouter_html(carte):
     <h4>Carte MAJ ANFR du {timestamp}</h4>
     <p>Vous pouvez choisir les actions à afficher à l'aide du layer control (en haut à droite).<br>
     Une question ? Une remarque ? Une suggestion ? -> <a href='https://github.com/fraetech/maj-hebdo/issues' target='_blank'>GitHub MAJ_Hebdo</a>.<br>
-    Ou sur mes réseaux sociaux (@fraetech).<br>
-    PS : Ceci est un algorithme déclenché automatiquement à l'heure précisée ci-dessus.<br> 
+    Ceci est un algorithme déclenché automatiquement à l'heure précisée ci-dessus.<br> 
     Il peut y avoir des erreurs. Il suffit d'attendre et ça devrait se corriger tout seul.<br>
     <i>(hopefully..)</i>.</p>
 </div>"""

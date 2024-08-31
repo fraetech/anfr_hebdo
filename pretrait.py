@@ -3,7 +3,6 @@ import argparse
 import pandas as pd
 import os
 import csv
-from datetime import datetime
 import re
 import functions_anfr
 
