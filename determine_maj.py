@@ -2,6 +2,7 @@
 import os
 import sys
 import subprocess
+import re  # Importer le module des expressions régulières
 import functions_anfr
 
 def run_script(script_name):
@@ -22,6 +23,14 @@ def check_and_execute(url, local_csv_dir, script_to_execute):
         # Récupérer le nom du fichier sur le serveur
         filename = functions_anfr.get_filename_from_server(url)
         local_csv_path = os.path.join(local_csv_dir, filename)
+
+        # Définir le pattern à respecter
+        pattern = r'^\d{14}_observatoire(_2g)?(_3g)?(_4g)?(_5g)?\.csv$'
+
+        # Vérifier si le nom du fichier respecte le pattern
+        if not re.match(pattern, filename):
+            functions_anfr.log_message(f"Le nom de fichier '{filename}' ne respecte pas le pattern requis.", "ERROR")
+            return  # Sortir de la fonction sans exécuter le script
 
         # Vérifier si le fichier est déjà présent localement
         if os.path.exists(local_csv_path):
