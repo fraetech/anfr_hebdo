@@ -179,7 +179,8 @@ def ajouter_html(carte):
     Une question ? Une remarque ? Une suggestion ? -> <a href='https://github.com/fraetech/maj-hebdo/issues' target='_blank'>GitHub MAJ_Hebdo</a>.<br>
     Ceci est un algorithme déclenché automatiquement à l'heure précisée ci-dessus.<br> 
     Il peut y avoir des erreurs. Il suffit d'attendre et ça devrait se corriger tout seul.<br>
-    <i>(hopefully..)</i>.</p>
+    <i>(hopefully..)</i>.<br>
+    <b>Source :</b> <a href='https://data.anfr.fr/visualisation/information/?id=observatoire_2g_3g_4g' target='_blank'>OpenData ANFR</a></p>
 </div>"""
     
     custom_html += """
