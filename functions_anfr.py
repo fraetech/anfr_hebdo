@@ -3,13 +3,15 @@ from datetime import datetime
 import subprocess
 import requests
 import sys
+import os
 
 def log_message(message, level="INFO"):
     """Fonction de log pour afficher un timestamp avec le niveau d'erreur."""
     timestamp = datetime.now().strftime("%d/%m/%Y à %H:%M:%S")
     print(f"{timestamp} [{level}] -> {message}")
 
-def send_sms(script_sms, message):
+def send_sms(message):
+    script_sms = os.path.join('dim_brest', 'sms.py')
     subprocess.run([sys.executable, script_sms, message])
 
 def get_filename_from_server(url):

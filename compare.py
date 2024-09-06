@@ -20,7 +20,7 @@ def download_data(url, save_path):
         functions_anfr.log_message(f"FATAL: Échec du téléchargement des données - {e}")
         raise SystemExit(1)
     
-def csv_files_update(path_new_csv, path_script_sms):
+def csv_files_update(path_new_csv):
     """Détermine les CSV entre lesquels il faut effectuer la comparaison à partir de leurs horodatages."""
     
     # Calcul des dates limites
@@ -61,7 +61,7 @@ def csv_files_update(path_new_csv, path_script_sms):
     if old_csv_path is None:
         raise FileNotFoundError("Aucun fichier ancien trouvé dans l'intervalle qui soit différent de path_new_csv.")
     
-    functions_anfr.send_sms(path_script_sms, f"MAJ_ANFR: Comparaison entre : {os.path.basename(old_csv_path)} et : {os.path.basename(path_new_csv)}. TBC.")
+    functions_anfr.send_sms(f"MAJ_ANFR: Comparaison entre : {os.path.basename(old_csv_path)} et : {os.path.basename(path_new_csv)}. TBC.")
     return old_csv_path, path_new_csv
 
 def rename_old_file(old_path, new_path):
@@ -130,7 +130,6 @@ def main(no_file_update, no_download, no_compare, no_write, debug):
     # Spécifie les chemins des fichiers
     path_app = os.path.dirname(os.path.abspath(__file__))
     download_path = os.path.join(path_app, 'files', 'from_anfr')
-    path_script_sms = os.path.join('dim_brest', 'EnvoiSMS.py')
     url = "https://data.anfr.fr/d4c/api/records/2.0/downloadfile/format=csv&resource_id=88ef0887-6b0f-4d3f-8545-6d64c8f597da&use_labels_for_header=true"
 
     # Télécharge les données
@@ -145,7 +144,7 @@ def main(no_file_update, no_download, no_compare, no_write, debug):
 
     # Détermine les CSV entre lesquels il faut faire la comparaison
     if not no_file_update:
-        old_csv_path, current_csv_path = csv_files_update(curr_csv_path, path_script_sms)
+        old_csv_path, current_csv_path = csv_files_update(curr_csv_path)
         functions_anfr.log_message(f"Comparaison entre {old_csv_path} et {current_csv_path}")
     else:
         functions_anfr.log_message(f"Mise à jour des fichiers CSV sautée : demandé par argument", "WARN")
