@@ -3,3 +3,4 @@
 *.csv
 !files/cc_insee/cc_insee.csv
 /maj_hebdo
+*.pyc
