@@ -56,7 +56,7 @@ def get_icon_path(operateur, action_label, files_path):
         'Suppression': 'sup'
     }
 
-    icon_filename = f"{operateur_map[operateur].lower()}_{action_map[action_label].lower()}.png"
+    icon_filename = f"{operateur_map[operateur].lower()}_{action_map[action_label].lower()}.avif"
     icon_path = os.path.join(icon_directory, icon_filename)
     
     if not os.path.exists(icon_path):
