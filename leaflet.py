@@ -161,7 +161,9 @@ def ajouter_marqueurs(dataframe, carte, files_path):
 def ajouter_html(carte):
     timestamp = datetime.now().strftime("%d/%m/%Y à %H:%M:%S")
     custom_html = f"""
-<div id="customMessage" style="position: fixed; 
+<title>Modifications ANFR hebdomadaires</title>
+<link rel="icon" href="https://fraetech.github.io/maj-hebdo/icons/favicon.svg" type="image/svg+xml" alt="Favicon">
+<div id="message" style="position: fixed; 
             bottom: 50px; left: 50px; 
             z-index: 1000; 
             background-color: white; 
@@ -185,9 +187,8 @@ def ajouter_html(carte):
     
     custom_html += """
 <script>
-    // Fermer le message lorsque le bouton est cliqué
     document.getElementById('closeButton').onclick = function() {
-        document.getElementById('customMessage').style.display = 'none';
+        document.getElementById('message').style.display = 'none';
     };
 </script>
 """
