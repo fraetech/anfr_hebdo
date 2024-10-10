@@ -212,7 +212,7 @@ def ajouter_html(carte):
     <h4><b>Carte MAJ ANFR du {timestamp}</b></h4>
     <p>Vous pouvez choisir les actions à afficher à l'aide du layer control (en haut à droite).<br>
     Questions, remarques et suggestions -> <a href='https://github.com/fraetech/maj-hebdo/issues' target='_blank'>GitHub MAJ_Hebdo</a>.<br>
-    Vous cherchez plutôt un opérateur ou le tri par fréquence ?<br>
+    Vous cherchez plutôt les modifications pour un opérateur en particulier ?<br>
     <span style="text-decoration: line-through; cursor: not-allowed;">Carte ByTel</span>,
     <span style="text-decoration: line-through; cursor: not-allowed;">Carte Free</span>,
     <span style="text-decoration: line-through; cursor: not-allowed;">Carte Orange</span>,
