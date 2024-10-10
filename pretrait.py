@@ -107,8 +107,8 @@ def sort_technologies(row):
     return ", ".join(sorted_elements)
 
 def merge_and_process(added_path, modified_path, removed_path, output_path, insee_data):
-    """Fusionne trois CSV décrivant les modifications faites par les opérateurs en un seul CSV."""
     try:
+        # Charger les fichiers CSV
         added_df = preprocess_csv(added_path, 'comp_added.csv')
         modified_df = preprocess_csv(modified_path, 'comp_modified.csv')
         removed_df = preprocess_csv(removed_path, 'comp_removed.csv')
@@ -117,17 +117,39 @@ def merge_and_process(added_path, modified_path, removed_path, output_path, inse
             functions_anfr.log_message("Un ou plusieurs fichiers de données sont vides ou n'ont pas été chargés correctement.", "ERROR")
             return
 
+        # Ajouter la colonne 'action'
         added_df['action'] = 'AJO'
         modified_df['action'] = modified_df.apply(determine_action, axis=1)
         removed_df['action'] = 'SUP'
 
-        final_df = pd.concat([added_df, modified_df, removed_df], ignore_index=True)
+        # Relocalisations
+        relocation_df = detect_relocalisation(added_df, removed_df)
+
+        # Détection des changements d'identifiant de support
+        id_change_df = detect_id_change(added_df, removed_df)
+
+        # Détection des changements d'adresse
+        address_change_df = detect_address_change(added_df, removed_df)
+
+        # Retirer les lignes détectées comme relocalisations, changements d'ID, et changements d'adresse
+        added_df = added_df[~added_df['id_support'].isin(pd.concat([relocation_df['id_support'], id_change_df['id_support'], address_change_df['id_support']]))]
+        removed_df = removed_df[~removed_df['id_support'].isin(pd.concat([relocation_df['id_support'], id_change_df['id_support'], address_change_df['id_support']]))]
+
+        # Renommer les colonnes pour harmoniser les noms
+        added_df = added_df.rename(columns={'adresse_complete': 'adresse'})
+        removed_df = removed_df.rename(columns={'adresse_complete': 'adresse'})
+        relocation_df = relocation_df.rename(columns={'adresse_added': 'adresse'})
+        id_change_df = id_change_df.rename(columns={'id_support_added': 'id_support', 'adresse0': 'adresse0', 'adresse1': 'adresse1', 'adresse2': 'adresse2', 'adresse3': 'adresse3'})
+        address_change_df = address_change_df.rename(columns={'id_support_added': 'id_support', 'adresse0': 'adresse0', 'adresse1': 'adresse1', 'adresse2': 'adresse2', 'adresse3': 'adresse3'})
+
+        # Fusionner toutes les données traitées
+        final_df = pd.concat([added_df, modified_df, removed_df, relocation_df, id_change_df, address_change_df], ignore_index=True)
 
         # Appliquer maj_addr avec insee_data préchargé
         final_df['adresse'] = final_df.apply(lambda row: maj_addr(row, insee_data), axis=1)
 
         final_df = final_df.groupby(['id_support', 'operateur', 'action']).agg({
-            'technologie': ', '.join,
+            'technologie': lambda x: ', '.join(set(x)),  # Utilisation de set() pour éviter les duplications
             'adresse': 'first',
             'code_insee': 'first',
             'coordonnees': 'first',
@@ -137,11 +159,77 @@ def merge_and_process(added_path, modified_path, removed_path, output_path, inse
 
         final_df = final_df.sort_values(['id_support', 'operateur', 'action']).reset_index(drop=True)
 
+        # Sauvegarder le fichier final
         final_df.to_csv(output_path, index=False)
         functions_anfr.log_message(f"Fichier final '{output_path}' généré avec succès.")
     except Exception as e:
         functions_anfr.log_message(f"Échec lors du traitement des fichiers - {e}", "FATAL")
         raise SystemExit(1)
+
+  
+def detect_relocalisation(added_df, removed_df):
+    merged_df = pd.merge(
+        added_df, removed_df,
+        on=['operateur', 'id_support', 'technologie', 'adresse0', 'adresse1', 'adresse2', 'adresse3', 'code_insee'],
+        suffixes=('_added', '_removed')
+    )
+    relocalisations = merged_df[merged_df['coordonnees_added'] != merged_df['coordonnees_removed']].copy()
+
+    # Utiliser .loc pour modifier de manière sécurisée
+    relocalisations.loc[:, 'action'] = 'CHL'
+    relocalisations.loc[:, 'technologie'] = 'Changement de localisation.'
+
+    relocalisations = relocalisations[['id_support', 'operateur', 'action', 'technologie', 'adresse0', 'adresse1', 'adresse2', 'adresse3', 'code_insee', 'coordonnees_added']]
+    relocalisations.rename(columns={'coordonnees_added': 'coordonnees'}, inplace=True)
+
+    return relocalisations
+
+def detect_id_change(added_df, removed_df):
+    # Fusionner les DataFrames sur les colonnes appropriées
+    merged_df = pd.merge(
+        added_df, removed_df,
+        on=['operateur', 'technologie', 'adresse0', 'adresse1', 'adresse2', 'adresse3', 'coordonnees', 'code_insee'],
+        suffixes=('_added', '_removed')
+    )
+
+    # Vérifier si la colonne 'id_support_added' existe
+    if 'id_support_added' not in merged_df.columns or 'id_support_removed' not in merged_df.columns:
+        raise KeyError("Les colonnes 'id_support_added' ou 'id_support_removed' sont manquantes après la fusion.")
+
+    # Sélection des changements d'ID de support
+    id_changes = merged_df[merged_df['id_support_added'] != merged_df['id_support_removed']].copy()
+
+    # Utiliser .loc pour modifier de manière sécurisée
+    id_changes.loc[:, 'action'] = 'CHI'
+    id_changes.loc[:, 'technologie'] = 'Soon.'
+
+    # Garder seulement les colonnes nécessaires
+    id_changes = id_changes[['id_support_added', 'operateur', 'action', 'technologie', 'adresse0', 'adresse1', 'adresse2', 'adresse3', 'code_insee', 'coordonnees']]
+    id_changes.rename(columns={'id_support_added': 'id_support'}, inplace=True)
+
+    return id_changes
+
+def detect_address_change(added_df, removed_df):
+    merged_df = pd.merge(
+        added_df, removed_df,
+        on=['id_support', 'operateur', 'technologie', 'coordonnees', 'code_insee'],
+        suffixes=('_added', '_removed')
+    )
+    address_changes = merged_df[
+        (merged_df['adresse0_added'] != merged_df['adresse0_removed']) |
+        (merged_df['adresse1_added'] != merged_df['adresse1_removed']) |
+        (merged_df['adresse2_added'] != merged_df['adresse2_removed']) |
+        (merged_df['adresse3_added'] != merged_df['adresse3_removed'])
+    ].copy()
+
+    # Utiliser .loc pour modifier de manière sécurisée
+    address_changes.loc[:, 'action'] = 'CHA'
+    address_changes['technologie'] = 'Soon.'
+
+    address_changes = address_changes[['id_support', 'operateur', 'action', 'technologie', 'adresse0_added', 'adresse1_added', 'adresse2_added', 'adresse3_added', 'code_insee', 'coordonnees']]
+    address_changes.rename(columns={'adresse0_added': 'adresse0', 'adresse1_added': 'adresse1', 'adresse2_added': 'adresse2', 'adresse3_added': 'adresse3'}, inplace=True)
+
+    return address_changes
 
 def main(no_insee, no_process, debug):
     """Fonction régissant l'intégralité du programme."""

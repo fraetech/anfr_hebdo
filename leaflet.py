@@ -53,7 +53,10 @@ def get_icon_path(operateur, action_label, files_path):
         'Ajout': 'ajo',
         'Activation': 'act',
         'Extinction': 'ext',
-        'Suppression': 'sup'
+        'Suppression': 'sup',
+        'Changement Adresse': 'cha',  # Ajout de CHA
+        'Changement Localisation': 'chl',  # Ajout de CHL
+        'Changement ID Support': 'chi'  # Ajout de CHI
     }
 
     icon_filename = f"{operateur_map[operateur].lower()}_{action_map[action_label].lower()}.avif"
@@ -61,7 +64,7 @@ def get_icon_path(operateur, action_label, files_path):
     
     if not os.path.exists(icon_path):
         try:
-            icon_filename = f"misc_{action_map[action_label].lower()}.png"
+            icon_filename = f"misc_{action_map[action_label].lower()}.avif"
             icon_path = os.path.join(icon_directory, icon_filename)
         except Exception as e:
             functions_anfr.log_message(f"Impossible de trouver l'icône {icon_filename}: {e}", "FATAL")
@@ -75,14 +78,20 @@ def ajouter_marqueurs(dataframe, carte, files_path):
             'Ajouts': folium.FeatureGroup(name='Ajouts').add_to(carte),
             'Activations': folium.FeatureGroup(name='Activations').add_to(carte),
             'Extinctions': folium.FeatureGroup(name='Extinctions').add_to(carte),
-            'Suppressions': folium.FeatureGroup(name='Suppressions').add_to(carte)
+            'Suppressions': folium.FeatureGroup(name='Suppressions').add_to(carte),
+            'Changements Adresse': folium.FeatureGroup(name='Changements Adresse').add_to(carte),  # CHA
+            'Changements Localisation': folium.FeatureGroup(name='Changements Localisation').add_to(carte),  # CHL
+            'Changements ID Support': folium.FeatureGroup(name='Changements ID Support').add_to(carte)  # CHI
         }
 
         clusters = {
             'Ajouts': MarkerCluster(name='Cluster des Ajouts').add_to(feature_groups['Ajouts']),
             'Activations': MarkerCluster(name='Cluster des Activations').add_to(feature_groups['Activations']),
             'Extinctions': MarkerCluster(name='Cluster des Extinctions').add_to(feature_groups['Extinctions']),
-            'Suppressions': MarkerCluster(name='Cluster des Suppressions').add_to(feature_groups['Suppressions'])
+            'Suppressions': MarkerCluster(name='Cluster des Suppressions').add_to(feature_groups['Suppressions']),
+            'Changements Adresse': MarkerCluster(name='Cluster des Changements Adresse').add_to(feature_groups['Changements Adresse']),  # CHA
+            'Changements Localisation': MarkerCluster(name='Cluster des Changements Localisation').add_to(feature_groups['Changements Localisation']),  # CHL
+            'Changements ID Support': MarkerCluster(name='Cluster des Changements ID Support').add_to(feature_groups['Changements ID Support'])  # CHI
         }
 
         folium.LayerControl().add_to(carte)
@@ -93,7 +102,7 @@ def ajouter_marqueurs(dataframe, carte, files_path):
     support_ids = set()
 
     for _, row in dataframe.iterrows():
-        try:
+        #try:
             support_id = row['id_support']
             if support_id not in support_ids:
                 support_ids.add(support_id)
@@ -107,10 +116,17 @@ def ajouter_marqueurs(dataframe, carte, files_path):
                 operateur_data = {}
                 for _, support_row in support_rows.iterrows():
                     operateur = support_row['operateur']
-                    action_label = "Ajout" if support_row['action'] == 'AJO' else "Activation" if support_row['action'] == 'ALL' else "Extinction" if support_row['action'] == 'EXT' else "Suppression"
+                    action_label = "Ajout" if support_row['action'] == 'AJO' else \
+                                "Activation" if support_row['action'] == 'ALL' else \
+                                "Extinction" if support_row['action'] == 'EXT' else \
+                                "Suppression" if support_row['action'] == 'SUP' else \
+                                "Changement Adresse" if support_row['action'] == 'CHA' else \
+                                "Changement Localisation" if support_row['action'] == 'CHL' else \
+                                "Changement ID Support" if support_row['action'] == 'CHI' else "Suppression"
 
                     if operateur not in operateur_data:
-                        operateur_data[operateur] = {"ajout": [], "activation": [], "extinction": [], "suppression": []}
+                        operateur_data[operateur] = {"ajout": [], "activation": [], "extinction": [], "suppression": [],
+                                                    "changement adresse": [], "changement localisation": [], "changement id support": []}
 
                     if action_label == "Ajout":
                         operateur_data[operateur]["ajout"].append(support_row['technologie'])
@@ -124,7 +140,17 @@ def ajouter_marqueurs(dataframe, carte, files_path):
                     elif action_label == "Suppression":
                         operateur_data[operateur]["suppression"].append(support_row['technologie'])
                         cluster = clusters['Suppressions']
+                    elif action_label == "Changement Adresse":
+                        operateur_data[operateur]["changement adresse"].append(support_row['technologie'])
+                        cluster = clusters['Changements Adresse']
+                    elif action_label == "Changement Localisation":
+                        operateur_data[operateur]["changement localisation"].append(support_row['technologie'])
+                        cluster = clusters['Changements Localisation']
+                    elif action_label == "Changement ID Support":
+                        operateur_data[operateur]["changement id support"].append(support_row['technologie'])
+                        cluster = clusters['Changements ID Support']
 
+                # Ajout du contenu HTML avec les nouvelles catégories
                 address = row['adresse']
                 for operateur, actions in operateur_data.items():
                     html_content = f"<strong>{address}</strong><br>"
@@ -143,6 +169,12 @@ def ajouter_marqueurs(dataframe, carte, files_path):
                         html_content += f"<li><strong>Extinction fréquence :</strong> {', '.join(actions['extinction'])}</li>"
                     if actions["suppression"]:
                         html_content += f"<li><strong>Suppression fréquence :</strong> {', '.join(actions['suppression'])}</li>"
+                    if actions["changement adresse"]:
+                        html_content += f"<li><strong>Changement d'adresse. Ancienne adresse : </strong> {', '.join(actions['changement adresse'])}</li>"
+                    if actions["changement localisation"]:
+                        html_content += f"<li><strong>Changement de localisation.</strong> {', '.join(actions['changement localisation'])}</li>"
+                    if actions["changement id support"]:
+                        html_content += f"<li><strong>Changement ID support. Ancien ID : </strong> {', '.join(actions['changement id support'])}</li>"
                     html_content += "</ul>"
 
                     # Obtenir le chemin de l'icône personnalisée
@@ -155,8 +187,9 @@ def ajouter_marqueurs(dataframe, carte, files_path):
                         icon=CustomIcon(icon_image=icon_path, icon_size=(48, 48))  # Utiliser l'icône personnalisée
                     )
                     marker.add_to(cluster)
-        except Exception as e:
-            functions_anfr.log_message(f"Erreur lors de l'ajout des marqueurs pour le support {support_id}: {e}", "ERROR")
+        #except Exception as e:
+        #    functions_anfr.log_message(f"Erreur lors de l'ajout des marqueurs pour le support {support_id}: {e}", "ERROR")
+
 
 def ajouter_html(carte):
     timestamp = datetime.now().strftime("%d/%m/%Y à %H:%M:%S")
@@ -176,12 +209,14 @@ def ajouter_html(carte):
             border: none; 
             font-size: 18px; 
             cursor: pointer;">&times;</button>
-    <h4>Carte MAJ ANFR du {timestamp}</h4>
+    <h4><b>Carte MAJ ANFR du {timestamp}</b></h4>
     <p>Vous pouvez choisir les actions à afficher à l'aide du layer control (en haut à droite).<br>
-    Une question ? Une remarque ? Une suggestion ? -> <a href='https://github.com/fraetech/maj-hebdo/issues' target='_blank'>GitHub MAJ_Hebdo</a>.<br>
-    Ceci est un algorithme déclenché automatiquement à l'heure précisée ci-dessus.<br> 
-    Il peut y avoir des erreurs. Il suffit d'attendre et ça devrait se corriger tout seul.<br>
-    <i>(hopefully..)</i>.<br>
+    Questions, remarques et suggestions -> <a href='https://github.com/fraetech/maj-hebdo/issues' target='_blank'>GitHub MAJ_Hebdo</a>.<br>
+    Vous cherchez un opérateur (et le tri par fréquence) en particulier ?<br>
+    <span style="text-decoration: line-through; cursor: not-allowed;">Carte ByTel</span>,
+    <span style="text-decoration: line-through; cursor: not-allowed;">Carte Free</span>,
+    <span style="text-decoration: line-through; cursor: not-allowed;">Carte Orange</span>,
+    <span style="text-decoration: line-through; cursor: not-allowed;">Carte SFR</span><br>
     <b>Source :</b> <a href='https://data.anfr.fr/visualisation/information/?id=observatoire_2g_3g_4g' target='_blank'>OpenData ANFR</a></p>
 </div>"""
     
