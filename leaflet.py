@@ -212,12 +212,12 @@ def ajouter_html(carte):
     <h4><b>Carte MAJ ANFR du {timestamp}</b></h4>
     <p>Vous pouvez choisir les actions à afficher à l'aide du layer control (en haut à droite).<br>
     Questions, remarques et suggestions -> <a href='https://github.com/fraetech/maj-hebdo/issues' target='_blank'>GitHub MAJ_Hebdo</a>.<br>
-    Vous cherchez un opérateur (et le tri par fréquence) en particulier ?<br>
+    Vous cherchez plutôt un opérateur ou le tri par fréquence ?<br>
     <span style="text-decoration: line-through; cursor: not-allowed;">Carte ByTel</span>,
     <span style="text-decoration: line-through; cursor: not-allowed;">Carte Free</span>,
     <span style="text-decoration: line-through; cursor: not-allowed;">Carte Orange</span>,
-    <span style="text-decoration: line-through; cursor: not-allowed;">Carte SFR</span><br>
-    <b>Source :</b> <a href='https://data.anfr.fr/visualisation/information/?id=observatoire_2g_3g_4g' target='_blank'>OpenData ANFR</a></p>
+    <span style="text-decoration: line-through; cursor: not-allowed;">Carte SFR</span> (Soon :D)<br>
+    <b>Source :</b> <a href='https://data.anfr.fr/visualisation/information/?id=observatoire_2g_3g_4g' target='_blank'>OpenData ANFR</a> | v24.10.10</p>
 </div>"""
     
     custom_html += """
