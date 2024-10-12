@@ -35,6 +35,10 @@ def commit_modif(repo):
     """ATTENTION !!! Fonction adaptée uniquement au cas présent de la MAJ Hebdo de l'ANFR !!! ATTENTION"""
     now = datetime.now()
     repo.git.add("index.html")
+    repo.git.add("bouygues.html")
+    repo.git.add("free.html")
+    repo.git.add("orange.html")
+    repo.git.add("sfr.html")
     repo.index.commit(f"Maj du {now.strftime('%d/%m/%Y à %H:%M:%S')}")
     functions_anfr.log_message("Modification commitées.")
 
@@ -56,7 +60,17 @@ def main(no_del_clone, no_del_file, no_copy_file, no_commit, no_push, debug):
     token = os.getenv("GITHUB_TOKEN")
     repo_url = "https://github.com/fraetech/maj-hebdo"
     local_dir = os.path.join(path_app, "maj_hebdo")
-    filename = "index.html" # Nom du fichier à supprimer dans le repo
+    
+    index = 'index.html'
+    new_index_file = os.path.join(path_app, "files", "out", "index.html")
+    bouygues = 'bouygues.html'
+    new_bouygues_file = os.path.join(path_app, "files", "out", "bouygues.html")
+    free = 'free.html'
+    new_free_file = os.path.join(path_app, "files", "out", "free.html")
+    orange = 'orange.html'
+    new_orange_file = os.path.join(path_app, "files", "out", "orange.html")
+    sfr = 'sfr.html'
+    new_sfr_file = os.path.join(path_app, "files", "out", "sfr.html")
 
     # 1. Supprimer puis cloner le dépôt (on fait une suppression afin d'éviter les fichiers aux permissions limitées de Git.)
     if not no_del_clone:
@@ -69,13 +83,21 @@ def main(no_del_clone, no_del_file, no_copy_file, no_commit, no_push, debug):
 
     # 2. Supprimer l'ancien fichier index.html
     if not no_del_file:
-        del_file_repo(local_dir, filename)
+        del_file_repo(local_dir, index)
+        del_file_repo(local_dir, bouygues)
+        del_file_repo(local_dir, free)
+        del_file_repo(local_dir, orange)
+        del_file_repo(local_dir, sfr)
     else:
         functions_anfr.log_message("Suppression du fichier dans le repo sautée : demandé par argument.", "WARN")
 
     # 3. Copier le nouveau fichier index.html
     if not no_copy_file:
-        copy_file_to_repo(local_dir, filename, new_index_file)
+        copy_file_to_repo(local_dir, index, new_index_file)
+        copy_file_to_repo(local_dir, bouygues, new_bouygues_file)
+        copy_file_to_repo(local_dir, free, new_free_file)
+        copy_file_to_repo(local_dir, orange, new_orange_file)
+        copy_file_to_repo(local_dir, sfr, new_sfr_file)
     else:
         
         functions_anfr.log_message("Copie du/des nouveaux fichier(s) dans le repo sautée : demandé par argument. Vous n'allez donc rien 'commiter' ?", "WARN")

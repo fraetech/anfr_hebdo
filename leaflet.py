@@ -3,6 +3,7 @@ import argparse
 import pandas as pd
 import os
 import folium
+import sys
 from folium import Map, Marker, Popup
 from folium.plugins import MarkerCluster
 from folium.features import CustomIcon
@@ -12,12 +13,13 @@ from jinja2 import Template
 from datetime import datetime
 import functions_anfr
 
-def charger_donnees(pretraite_path):
+def charger_donnees(pretraite_path, operateur):
     """Charge les données depuis un CSV dans un DataFrame Pandas."""
-    if not os.path.exists(pretraite_path):
-        raise FileNotFoundError(f"Le fichier {pretraite_path} est introuvable.")
+    final_path = os.path.join(pretraite_path, f'{operateur}.csv')
+    if not os.path.exists(final_path):
+        raise FileNotFoundError(f"Le fichier {final_path} est introuvable.")
     try:
-        pretraite_df = pd.read_csv(pretraite_path, sep=',')
+        pretraite_df = pd.read_csv(final_path, sep=',')
     except Exception as e:
         functions_anfr.log_message(f"Erreur lors du chargement du fichier CSV: {e}", "FATAL")
         raise
@@ -212,12 +214,12 @@ def ajouter_html(carte):
     <h4><b>Carte MAJ ANFR du {timestamp}</b></h4>
     <p>Vous pouvez choisir les actions à afficher à l'aide du layer control (en haut à droite).<br>
     Questions, remarques et suggestions -> <a href='https://github.com/fraetech/maj-hebdo/issues' target='_blank'>GitHub MAJ_Hebdo</a>.<br>
-    Vous cherchez plutôt les modifications pour un opérateur en particulier ?<br>
-    <span style="text-decoration: line-through; cursor: not-allowed;">Carte ByTel</span>,
-    <span style="text-decoration: line-through; cursor: not-allowed;">Carte Free</span>,
-    <span style="text-decoration: line-through; cursor: not-allowed;">Carte Orange</span>,
-    <span style="text-decoration: line-through; cursor: not-allowed;">Carte SFR</span> (Soon :D)<br>
-    <b>Source :</b> <a href='https://data.anfr.fr/visualisation/information/?id=observatoire_2g_3g_4g' target='_blank'>OpenData ANFR</a> | v24.10.10</p>
+    Vous cherchez plutôt les modifications d'un opérateur en particulier ?<br>
+    <a href='https://fraetech.github.io/maj-hebdo/bouygues.html' target="_self">Carte Bouygues</a>,
+    <a href='https://fraetech.github.io/maj-hebdo/free.html' target="_self">Carte Free</a>,
+    <a href='https://fraetech.github.io/maj-hebdo/orange.html' target="_self">Carte Orange</a>,
+    <a href='https://fraetech.github.io/maj-hebdo/sfr.html' target="_self">Carte SFR</a><br>
+    <b>Source :</b> <a href='https://data.anfr.fr/visualisation/information/?id=observatoire_2g_3g_4g' target='_blank'>OpenData ANFR</a> | v24.10.12</p>
 </div>"""
     
     custom_html += """
@@ -238,25 +240,26 @@ def ajouter_html(carte):
             return template.render()
     carte.get_root().html.add_child(CustomElement(custom_html))
 
-def enregistrer_carte(carte, nom_fichier):
+def enregistrer_carte(carte, nom_fichier, operateur):
     """Enregistre la carte Folium dans un le fichier HTML final."""
+    final_path = os.path.join(nom_fichier, f'{operateur}.html')
     try:
-        carte.save(nom_fichier)
+        carte.save(final_path)
     except Exception as e:
         functions_anfr.log_message(f"Erreur lors de la sauvegarde de la carte: {e}", "FATAL")
         raise
 
-def main(no_load, no_create_map, no_indicators, no_save_map, debug):
+def main(no_load, no_create_map, no_indicators, no_save_map, operateur, debug):
     """Fonction principale régissant le programme."""
     # Spécifie les chemins des fichiers
     path_app = os.path.dirname(os.path.abspath(__file__))
     files_path = os.path.join(path_app, 'files')
-    pretraite_path = os.path.join(files_path, 'pretraite', 'pretraite.csv')
-    carte_path = os.path.join(files_path, 'out', 'index.html')
+    pretraite_path = os.path.join(files_path, 'pretraite')
+    carte_path = os.path.join(files_path, 'out')
 
     try:
         if not no_load:
-            pretraite_df = charger_donnees(pretraite_path)
+            pretraite_df = charger_donnees(pretraite_path, operateur)
             functions_anfr.log_message("Fichier CSV pretraite chargé")
         else:
             functions_anfr.log_message("Chargement fichier pretraite sauté : demandé par argument", "WARN")
@@ -277,8 +280,8 @@ def main(no_load, no_create_map, no_indicators, no_save_map, debug):
         ajouter_html(my_map)
 
         if not no_save_map:
-            enregistrer_carte(my_map, carte_path)
-            functions_anfr.log_message("Carte enregistrée")
+            enregistrer_carte(my_map, carte_path, operateur)
+            functions_anfr.log_message(f"Carte enregistrée : {operateur}")
         else:
             functions_anfr.log_message("La sauvegarde de la carte a été sautée : demandé par argument", "WARN")
     except FileNotFoundError as e:
@@ -296,6 +299,7 @@ if __name__ == "__main__":
     parser.add_argument('--no-indicators', action='store_true', help="Ne pas ajouter de marqueurs sur la carte.")
     parser.add_argument('--no-save-map', action='store_true', help="Ne pas sauvegarder la carte.")
     parser.add_argument('--debug', action='store_true', help="Afficher les messages de debug.")
+    parser.add_argument('--operateur', type=str, default='index', help='Si un opérateur en particulier doit être généré.')
 
     args = parser.parse_args()
-    main(no_load=args.no_load, no_create_map=args.no_create_map, no_indicators=args.no_indicators, no_save_map=args.no_save_map, debug=args.debug)
+    main(no_load=args.no_load, no_create_map=args.no_create_map, no_indicators=args.no_indicators, no_save_map=args.no_save_map, operateur=args.operateur, debug=args.debug)

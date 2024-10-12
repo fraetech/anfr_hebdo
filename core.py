@@ -4,6 +4,7 @@ import subprocess
 import sys
 import os
 import functions_anfr
+import concurrent.futures
 
 def run_script(script_name, *args):
     """Exécute un script Python avec des arguments optionnels."""
@@ -16,6 +17,14 @@ def run_script(script_name, *args):
     except Exception as e:
         functions_anfr.log_message(f"Une erreur inattendue est survenue lors de l'exécution de {script_name}: {e}", "FATAL")
         sys.exit(1)
+
+def run_leaflet_with_operateur(path_leaflet, leaflet_args, operateur=None):
+    # Ajouter l'opérateur si précisé
+    if operateur:
+        leaflet_args_with_operateur = leaflet_args + [f'--operateur={operateur}']
+        run_script(path_leaflet, *leaflet_args_with_operateur)
+    else:
+        run_script(path_leaflet, *leaflet_args)
 
 def main(args):
     """Fonction principale pour orchestrer l'exécution des différents scripts."""
@@ -56,6 +65,7 @@ def main(args):
     
     if not args.skip_leaflet:
         functions_anfr.log_message("Génération de la carte avec leaflet.py")
+
         leaflet_args = []
         if args.no_load:
             leaflet_args.append('--no-load')
@@ -68,7 +78,26 @@ def main(args):
         if args.debug:
             leaflet_args.append('--debug')
 
-        run_script(path_leaflet, *leaflet_args)
+        # Exécution de l'instance sans l'argument --operateur seule
+        run_leaflet_with_operateur(path_leaflet, leaflet_args)
+
+        # Liste des opérateurs à exécuter par paire
+        operateur_pairs = [
+            ["bouygues", "free"],
+            ["orange", "sfr"]
+        ]
+
+        # Exécution des paires d'opérateurs en parallèle
+        for pair in operateur_pairs:
+            with concurrent.futures.ProcessPoolExecutor(max_workers=2) as executor:
+                # Utilisation de 2 threads pour exécuter les deux opérateurs en parallèle
+                futures = [
+                    executor.submit(run_leaflet_with_operateur, path_leaflet, leaflet_args, operateur=pair[0]),
+                    executor.submit(run_leaflet_with_operateur, path_leaflet, leaflet_args, operateur=pair[1])
+                ]
+
+                # Attendre que les deux processus se terminent
+                concurrent.futures.wait(futures)
 
     if not args.skip_github:
         functions_anfr.log_message("Push vers GitHub avec github.py")
