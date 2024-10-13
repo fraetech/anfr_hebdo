@@ -41,10 +41,21 @@ def maj_addr(row, insee_data):
     """Met à jour l'adresse d'une ligne donnée."""
     try:
         # Filtrer les parties vides de l'adresse
-        addr_parts = [str(row[col]) for col in ['adresse0', 'adresse1', 'adresse2', 'adresse3'] if pd.notna(row[col])]
+        addr_parts = []
+        for col in ['adresse1', 'adresse2', 'adresse3']:
+            if pd.notna(row[col]):
+                addr_parts.append(str(row[col]))
+        
+        # Special handling for 'adresse0'
+        if pd.notna(row['adresse0']):
+            addr_parts.append(f"({str(row['adresse0'])})")
+        
+        # Join the address parts into a single string
         addr = " ".join(addr_parts)
+        
         cc_insee = row['code_insee']
         return addr + " " + conv_insee(cc_insee, insee_data)
+    
     except KeyError as e:
         functions_anfr.log_message(f"Clé manquante dans les données de la ligne - {e}", "ERROR")
         return "00404 ERR ADDRESS"

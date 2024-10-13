@@ -54,13 +54,13 @@ def csv_files_update(path_new_csv):
             if diff < min_diff and path_check_file != path_new_csv:
                 min_diff = diff
                 old_csv_path = path_check_file
-                selected_timestamp = file_timestamp
     
     # Si old_csv_path est toujours None (c'est-à-dire aucun fichier trouvé qui diffère de path_new_csv),
     if old_csv_path is None:
         raise FileNotFoundError("Aucun fichier ancien trouvé dans l'intervalle qui corresponde aux critères.")
     
     functions_anfr.send_sms(f"MAJ_ANFR: Comparaison lancée entre : {datetime.strptime(os.path.basename(path_new_csv)[:14], '%Y%m%d%H%M%S').strftime('%Y-%m-%d %H:%M:%S')} et : {datetime.strptime(os.path.basename(old_csv_path)[:14], '%Y%m%d%H%M%S').strftime('%Y-%m-%d %H:%M:%S')}. TBC.")
+    selected_timestamp = datetime.strptime(os.path.basename(path_new_csv)[:14], '%Y%m%d%H%M%S').strftime('%d/%m/%Y à %H:%M:%S')
     return old_csv_path, path_new_csv, selected_timestamp
 
 def rename_old_file(old_path, new_path):
@@ -193,7 +193,7 @@ def main(no_file_update, no_download, no_compare, no_write, debug):
         functions_anfr.log_message("Ecriture des résultats sautée : demandé par argument", "WARN")
 
     with open(os.path.join(path_app, 'files', 'compared', 'timestamp.txt'), 'w') as f:
-              f.write(timestamp.strftime("%d/%m/%Y à %H:%M:%S"))
+              f.write(str(timestamp))
               f.close()
 
     # Temps d'exécution
