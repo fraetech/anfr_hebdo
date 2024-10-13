@@ -90,7 +90,7 @@ def main(args):
         # Exécution des paires d'opérateurs en parallèle
         for pair in operateur_pairs:
             with concurrent.futures.ProcessPoolExecutor(max_workers=2) as executor:
-                # Utilisation de 2 threads pour exécuter les deux opérateurs en parallèle
+                # Utilisation de 2 threads pour exécuter deux opérateurs en parallèle
                 futures = [
                     executor.submit(run_leaflet_with_operateur, path_leaflet, leaflet_args, operateur=pair[0]),
                     executor.submit(run_leaflet_with_operateur, path_leaflet, leaflet_args, operateur=pair[1])

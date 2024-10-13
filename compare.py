@@ -41,7 +41,6 @@ def csv_files_update(path_new_csv):
             # Extraire uniquement la partie date de la chaîne de caractères
             file_timestamp_str = fichier.split('_')[0]
             file_timestamp = datetime.strptime(file_timestamp_str, "%Y%m%d%H%M%S")
-            print(file_timestamp)
         except ValueError:
             continue  # Ignorer les fichiers qui ne correspondent pas au format attendu
 
@@ -55,14 +54,14 @@ def csv_files_update(path_new_csv):
             if diff < min_diff and path_check_file != path_new_csv:
                 min_diff = diff
                 old_csv_path = path_check_file
+                selected_timestamp = file_timestamp
     
     # Si old_csv_path est toujours None (c'est-à-dire aucun fichier trouvé qui diffère de path_new_csv),
-    # il faut renvoyer un message d'erreur ou gérer cela selon vos besoins
     if old_csv_path is None:
-        raise FileNotFoundError("Aucun fichier ancien trouvé dans l'intervalle qui soit différent de path_new_csv.")
+        raise FileNotFoundError("Aucun fichier ancien trouvé dans l'intervalle qui corresponde aux critères.")
     
-    functions_anfr.send_sms(f"MAJ_ANFR: Comparaison entre : {os.path.basename(old_csv_path)} et : {os.path.basename(path_new_csv)}. TBC.")
-    return old_csv_path, path_new_csv
+    functions_anfr.send_sms(f"MAJ_ANFR: Comparaison lancée entre : {datetime.strptime(os.path.basename(path_new_csv)[:14], '%Y%m%d%H%M%S').strftime('%Y-%m-%d %H:%M:%S')} et : {datetime.strptime(os.path.basename(old_csv_path)[:14], '%Y%m%d%H%M%S').strftime('%Y-%m-%d %H:%M:%S')}. TBC.")
+    return old_csv_path, path_new_csv, selected_timestamp
 
 def rename_old_file(old_path, new_path):
     """Renomme l'actuel fichier nouveau en ancien, et supprime l'ancien fichier."""
@@ -121,7 +120,8 @@ def write_results(df, file_path, message):
     try:
         df.to_csv(file_path, index=False)
         nb_rows = len(df)
-        functions_anfr.log_message(f"{message} Il y a {nb_rows} lignes.")
+        functions_anfr.log_message(f"{message} il y a {nb_rows} lignes.")
+        return f"{message} il y a {nb_rows} lignes. "
     except IOError as e:
         functions_anfr.log_message(f"Impossible d'écrire dans le fichier '{file_path}' - {e}", "ERROR")
 
@@ -144,10 +144,11 @@ def main(no_file_update, no_download, no_compare, no_write, debug):
 
     # Détermine les CSV entre lesquels il faut faire la comparaison
     if not no_file_update:
-        old_csv_path, current_csv_path = csv_files_update(curr_csv_path)
+        old_csv_path, current_csv_path, timestamp = csv_files_update(curr_csv_path)
         functions_anfr.log_message(f"Comparaison entre {old_csv_path} et {current_csv_path}")
     else:
         functions_anfr.log_message(f"Mise à jour des fichiers CSV sautée : demandé par argument", "WARN")
+        timestamp = ""
 
     start_time = time.time()
 
@@ -174,20 +175,26 @@ def main(no_file_update, no_download, no_compare, no_write, debug):
     if not no_write:
         functions_anfr.log_message("Début écriture des résultats")
         if df_removed is not None:
+            string_sms = "Done. "
             if debug:
                 functions_anfr.log_message("Début écriture résultats df_removed", "DEBUG")
-            write_results(df_removed, os.path.join(path_app, 'files', 'compared', 'comp_removed.csv'), "Lignes supprimées : ")
+            string_sms += write_results(df_removed, os.path.join(path_app, 'files', 'compared', 'comp_removed.csv'), "Lignes supprimées : ")
         if df_modified is not None:
             if debug:
                 functions_anfr.log_message("Début écriture résultats df_modified", "DEBUG")
-            write_results(df_modified, os.path.join(path_app, 'files', 'compared', 'comp_modified.csv'), "Lignes modifiées : ")
+            string_sms += write_results(df_modified, os.path.join(path_app, 'files', 'compared', 'comp_modified.csv'), "Lignes modifiées : ")
         if df_added is not None:
             if debug:
                 functions_anfr.log_message("Début écriture résultats df_added", "DEBUG")
-            write_results(df_added, os.path.join(path_app, 'files', 'compared', 'comp_added.csv'), "Nouvelles lignes : ")
+            string_sms += write_results(df_added, os.path.join(path_app, 'files', 'compared', 'comp_added.csv'), "Nouvelles lignes : ")
         functions_anfr.log_message("Ecriture des résultats terminée")
+        functions_anfr.send_sms(string_sms)
     else:
         functions_anfr.log_message("Ecriture des résultats sautée : demandé par argument", "WARN")
+
+    with open(os.path.join(path_app, 'files', 'compared', 'timestamp.txt'), 'w') as f:
+              f.write(timestamp.strftime("%d/%m/%Y à %H:%M:%S"))
+              f.close()
 
     # Temps d'exécution
     end_time = time.time()

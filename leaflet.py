@@ -3,8 +3,7 @@ import argparse
 import pandas as pd
 import os
 import folium
-import sys
-from folium import Map, Marker, Popup
+from folium import Map, Popup
 from folium.plugins import MarkerCluster
 from folium.features import CustomIcon
 from datetime import datetime
@@ -193,8 +192,8 @@ def ajouter_marqueurs(dataframe, carte, files_path):
         #    functions_anfr.log_message(f"Erreur lors de l'ajout des marqueurs pour le support {support_id}: {e}", "ERROR")
 
 
-def ajouter_html(carte):
-    timestamp = datetime.now().strftime("%d/%m/%Y à %H:%M:%S")
+def ajouter_html(carte, timestamp):
+    date_h_gen = datetime.now().strftime("%d/%m/%Y à %H:%M:%S")
     custom_html = f"""
 <title>Modifications ANFR hebdomadaires</title>
 <link rel="icon" href="https://fraetech.github.io/maj-hebdo/icons/favicon.svg" type="image/svg+xml" alt="Favicon">
@@ -215,11 +214,12 @@ def ajouter_html(carte):
     <p>Vous pouvez choisir les actions à afficher à l'aide du layer control (en haut à droite).<br>
     Questions, remarques et suggestions -> <a href='https://github.com/fraetech/maj-hebdo/issues' target='_blank'>GitHub MAJ_Hebdo</a>.<br>
     Vous cherchez plutôt les modifications d'un opérateur en particulier ?<br>
+    <a href='https://fraetech.github.io/maj-hebdo/' target="_self">Tous</a>,
     <a href='https://fraetech.github.io/maj-hebdo/bouygues.html' target="_self">Carte Bouygues</a>,
     <a href='https://fraetech.github.io/maj-hebdo/free.html' target="_self">Carte Free</a>,
     <a href='https://fraetech.github.io/maj-hebdo/orange.html' target="_self">Carte Orange</a>,
     <a href='https://fraetech.github.io/maj-hebdo/sfr.html' target="_self">Carte SFR</a><br>
-    <b>Source :</b> <a href='https://data.anfr.fr/visualisation/information/?id=observatoire_2g_3g_4g' target='_blank'>OpenData ANFR</a> | v24.10.12</p>
+    <b>Source :</b> <a href='https://data.anfr.fr/visualisation/information/?id=observatoire_2g_3g_4g' target='_blank'>OpenData ANFR</a> | <small>Carte générée le {date_h_gen} - v24.10.13</small></p>
 </div>"""
     
     custom_html += """
@@ -257,6 +257,10 @@ def main(no_load, no_create_map, no_indicators, no_save_map, operateur, debug):
     pretraite_path = os.path.join(files_path, 'pretraite')
     carte_path = os.path.join(files_path, 'out')
 
+    with open(os.path.join(path_app, 'files', 'compared', 'timestamp.txt'), "r") as f:
+        timestamp = str(f.read())
+        f.close
+
     try:
         if not no_load:
             pretraite_df = charger_donnees(pretraite_path, operateur)
@@ -277,7 +281,7 @@ def main(no_load, no_create_map, no_indicators, no_save_map, operateur, debug):
         else:
             functions_anfr.log_message("Ajout des marqueurs sur la carte sauté : demandé par argument", "WARN")
 
-        ajouter_html(my_map)
+        ajouter_html(my_map, timestamp)
 
         if not no_save_map:
             enregistrer_carte(my_map, carte_path, operateur)
