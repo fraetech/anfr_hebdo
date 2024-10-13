@@ -11,7 +11,7 @@ def log_message(message, level="INFO"):
     print(f"{timestamp} [{level}] -> {message}")
 
 def send_sms(message):
-    script_sms = os.path.join('dim_brest', 'sms.py')
+    script_sms = '/home/pi/dim_brest/sms.py'
     subprocess.run([sys.executable, script_sms, message])
 
 def get_filename_from_server(url):
