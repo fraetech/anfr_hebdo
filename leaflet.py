@@ -4,7 +4,7 @@ import pandas as pd
 import os
 import folium
 from folium import Map, Popup
-from folium.plugins import MarkerCluster
+from folium.plugins import MarkerCluster, Geocoder
 from folium.features import CustomIcon
 from datetime import datetime
 from branca.element import MacroElement
@@ -28,6 +28,7 @@ def creer_carte():
     """Créé la carte Folium."""
     try:
         carte = Map(location=[48.8566, 2.3522], zoom_start=6)
+        Geocoder().add_to(carte)
     except Exception as e:
         functions_anfr.log_message(f"Erreur lors de la création de la carte: {e}", "FATAL")
         raise
@@ -79,20 +80,20 @@ def ajouter_marqueurs(dataframe, carte, files_path):
             'Ajouts': folium.FeatureGroup(name='Ajouts').add_to(carte),
             'Activations': folium.FeatureGroup(name='Activations').add_to(carte),
             'Extinctions': folium.FeatureGroup(name='Extinctions').add_to(carte),
-            'Suppressions': folium.FeatureGroup(name='Suppressions').add_to(carte),
-            'Changements Adresse': folium.FeatureGroup(name='Changements Adresse').add_to(carte),  # CHA
-            'Changements Localisation': folium.FeatureGroup(name='Changements Localisation').add_to(carte),  # CHL
-            'Changements ID Support': folium.FeatureGroup(name='Changements ID Support').add_to(carte)  # CHI
+            'Suppressions': folium.FeatureGroup(name='Suppressions').add_to(carte)
+            #'Changements Adresse': folium.FeatureGroup(name='Changements Adresse').add_to(carte),  # CHA
+            #'Changements Localisation': folium.FeatureGroup(name='Changements Localisation').add_to(carte),  # CHL
+            #'Changements ID Support': folium.FeatureGroup(name='Changements ID Support').add_to(carte)  # CHI
         }
 
         clusters = {
             'Ajouts': MarkerCluster(name='Cluster des Ajouts').add_to(feature_groups['Ajouts']),
             'Activations': MarkerCluster(name='Cluster des Activations').add_to(feature_groups['Activations']),
             'Extinctions': MarkerCluster(name='Cluster des Extinctions').add_to(feature_groups['Extinctions']),
-            'Suppressions': MarkerCluster(name='Cluster des Suppressions').add_to(feature_groups['Suppressions']),
-            'Changements Adresse': MarkerCluster(name='Cluster des Changements Adresse').add_to(feature_groups['Changements Adresse']),  # CHA
-            'Changements Localisation': MarkerCluster(name='Cluster des Changements Localisation').add_to(feature_groups['Changements Localisation']),  # CHL
-            'Changements ID Support': MarkerCluster(name='Cluster des Changements ID Support').add_to(feature_groups['Changements ID Support'])  # CHI
+            'Suppressions': MarkerCluster(name='Cluster des Suppressions').add_to(feature_groups['Suppressions'])
+            #'Changements Adresse': MarkerCluster(name='Cluster des Changements Adresse').add_to(feature_groups['Changements Adresse']),  # CHA
+            #'Changements Localisation': MarkerCluster(name='Cluster des Changements Localisation').add_to(feature_groups['Changements Localisation']),  # CHL
+            #'Changements ID Support': MarkerCluster(name='Cluster des Changements ID Support').add_to(feature_groups['Changements ID Support'])  # CHI
         }
 
         folium.LayerControl().add_to(carte)
@@ -103,7 +104,7 @@ def ajouter_marqueurs(dataframe, carte, files_path):
     support_ids = set()
 
     for _, row in dataframe.iterrows():
-        #try:
+        try:
             support_id = row['id_support']
             if support_id not in support_ids:
                 support_ids.add(support_id)
@@ -151,52 +152,89 @@ def ajouter_marqueurs(dataframe, carte, files_path):
                         operateur_data[operateur]["changement id support"].append(support_row['technologie'])
                         cluster = clusters['Changements ID Support']
 
-                # Ajout du contenu HTML avec les nouvelles catégories
                 address = row['adresse']
                 for operateur, actions in operateur_data.items():
-                    html_content = f"<strong>{address}</strong><br>"
-                    html_content += f"Support n°{row['id_support']}<br>"
-                    html_content += f"<a href='https://cartoradio.fr/index.html#/cartographie/lonlat/{longitude}/{latitude}' target='_blank'>Voir sur Cartoradio</a><br>"
-                    if row['operateur'] == 'FREE MOBILE' or row['operateur'] == 'TELCO OI':
-                        html_content += f"<a href='https://rncmobile.net/site/{latitude},{longitude}' target='_blank'>Voir sur RNC Mobile</a><br>"
-                    html_content += f"<a href='https://data.anfr.fr/visualisation/map/?id=observatoire_2g_3g_4g&location=17,{latitude},{longitude}' target='_blank'>Voir sur data.anfr.fr</a>"
+                    bandeau_texte = f"<a href='https://data.anfr.fr/visualisation/map/?id=observatoire_2g_3g_4g&location=17,{latitude},{longitude}' target='_blank' style='color:#FFFFFF;'>Support n°{row['id_support']}</a>"
 
+                    operator_colors = {
+                        "BOUYGUES TELECOM": "#009BCE",
+                        "FREE MOBILE": "#6D6E71",
+                        "SFR": "#E40012",
+                        "ORANGE": "#FD7B02"
+                    }
+                    
+                    bandeau_couleur = operator_colors.get(operateur, "#000000")
+
+                    links_html = f"""
+                    <a href='https://cartoradio.fr/index.html#/cartographie/lonlat/{longitude}/{latitude}' target='_blank' class="icone">
+                        <img src="https://fraetech.github.io/maj-hebdo/icons/cartoradio.avif" alt="Cartoradio">
+                    </a>
+                    <a href='https://www.google.fr/maps/place/{latitude},{longitude}' target='_blank' class="icone">
+                        <img src="https://fraetech.github.io/maj-hebdo/icons/maps.avif" alt="Google Maps">
+                    </a>
+                    """
+                    if row['operateur'] == 'FREE MOBILE' or row['operateur'] == 'TELCO OI':
+                        links_html += f"""
+                        <a href='https://rncmobile.net/site/{latitude},{longitude}' target='_blank' class="icone">
+                            <img src="https://fraetech.github.io/maj-hebdo/icons/rnc.avif" alt="RNC Mobile">
+                        </a>
+                        """
+                    titre = f"<strong>{address}</strong>"
+                    html_content = ""
                     html_content += "<ul>"
                     if actions["ajout"]:
-                        html_content += f"<li><strong>Nouvelles fréquences :</strong> {', '.join(actions['ajout'])}</li>"
+                        html_content += f"<li><strong>Nouvelle(s) fréquence(s) :</strong><br> {', '.join(actions['ajout'])}</li>"
                     if actions["activation"]:
-                        html_content += f"<li><strong>Activation fréquence :</strong> {', '.join(actions['activation'])}</li>"
+                        html_content += f"<li><strong>Activation fréquence :</strong><br> {', '.join(actions['activation'])}</li>"
                     if actions["extinction"]:
-                        html_content += f"<li><strong>Extinction fréquence :</strong> {', '.join(actions['extinction'])}</li>"
+                        html_content += f"<li><strong>Extinction fréquence :</strong><br> {', '.join(actions['extinction'])}</li>"
                     if actions["suppression"]:
-                        html_content += f"<li><strong>Suppression fréquence :</strong> {', '.join(actions['suppression'])}</li>"
+                        html_content += f"<li><strong>Suppression fréquence :</strong><br> {', '.join(actions['suppression'])}</li>"
                     if actions["changement adresse"]:
-                        html_content += f"<li><strong>Changement d'adresse. Ancienne adresse : </strong> {', '.join(actions['changement adresse'])}</li>"
+                        html_content += f"<li><strong>Changement d'adresse. Ancienne adresse : </strong><br> {', '.join(actions['changement adresse'])}</li>"
                     if actions["changement localisation"]:
-                        html_content += f"<li><strong>Changement de localisation.</strong> {', '.join(actions['changement localisation'])}</li>"
+                        html_content += f"<li><strong>Changement de localisation.</strong><br> {', '.join(actions['changement localisation'])}</li>"
                     if actions["changement id support"]:
-                        html_content += f"<li><strong>Changement ID support. Ancien ID : </strong> {', '.join(actions['changement id support'])}</li>"
+                        html_content += f"<li><strong>Changement ID support. Ancien ID : </strong><br> {', '.join(actions['changement id support'])}</li>"
                     html_content += "</ul>"
 
-                    # Obtenir le chemin de l'icône personnalisée
                     icon_path = get_icon_path(operateur, action_label, files_path)
 
+                    popup_html = f"""
+                    <div class="bandeau" style="background-color: {bandeau_couleur};">
+                        {bandeau_texte}
+                    </div>
+                    <div class="icone-container">
+                        {links_html}
+                    </div>
+                    <div class="titre">
+                        {titre}
+                    </div>
+                    <div class="contenu">
+                        {html_content}
+                    </div>
+                    """
                     marker = folium.Marker(
                         location=coord,
-                        popup=Popup(html_content, max_width=300),
+                        popup=Popup(popup_html, max_width=300),
                         tooltip=f"{operateur}",
-                        icon=CustomIcon(icon_image=icon_path, icon_size=(48, 48))  # Utiliser l'icône personnalisée
+                        icon=CustomIcon(icon_image=icon_path, icon_size=(48, 48))
                     )
                     marker.add_to(cluster)
-        #except Exception as e:
-        #    functions_anfr.log_message(f"Erreur lors de l'ajout des marqueurs pour le support {support_id}: {e}", "ERROR")
+        except Exception as e:
+            functions_anfr.log_message(f"Erreur lors de l'ajout des marqueurs pour le support {support_id}: {e}", "ERROR")
 
 
 def ajouter_html(carte, timestamp):
     date_h_gen = datetime.now().strftime("%d/%m/%Y à %H:%M:%S")
     custom_html = f"""
 <title>Modifications ANFR hebdomadaires</title>
+<head>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Didact+Gothic&display=swap" rel="stylesheet">
 <link rel="icon" href="https://fraetech.github.io/maj-hebdo/icons/favicon.svg" type="image/svg+xml" alt="Favicon">
+</head>
 <div id="message" style="position: fixed; 
             bottom: 50px; left: 50px; 
             z-index: 1000; 
@@ -219,9 +257,69 @@ def ajouter_html(carte, timestamp):
     <a href='https://fraetech.github.io/maj-hebdo/free.html' target="_self">Carte Free</a>,
     <a href='https://fraetech.github.io/maj-hebdo/orange.html' target="_self">Carte Orange</a>,
     <a href='https://fraetech.github.io/maj-hebdo/sfr.html' target="_self">Carte SFR</a><br>
-    <b>Source :</b> <a href='https://data.anfr.fr/visualisation/information/?id=observatoire_2g_3g_4g' target='_blank'>OpenData ANFR</a> | <small>Carte générée le {date_h_gen} - v24.10.13</small></p>
+    <b>Source :</b> <a href='https://data.anfr.fr/visualisation/information/?id=observatoire_2g_3g_4g' target='_blank'>OpenData ANFR</a> | <small>Carte générée le {date_h_gen} - v24.12.08</small></p>
 </div>"""
-    
+
+    custom_html += """
+<style>
+.bandeau {
+    color: white;
+    text-align: center;
+    padding: 5px;
+    font-size: 1.2em;
+    font-weight: bold;
+    line-height: 1.2;
+}
+
+* {
+  font-family: "Didact Gothic", sans-serif !important;
+  font-weight: 500;
+  font-style: normal;
+}
+
+.icone-container {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin: 10px 0;
+}
+
+.icone {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #f0f0f0;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: transform 0.2s, background-color 0.2s;
+}
+
+.icone:hover {
+    background-color: #007BFF;
+    transform: scale(1.1);
+}
+
+.icone img {
+    width: 20px;
+    height: 20px;
+}
+
+.titre {
+    text-align: center;
+    font-size: 1em;
+    margin: 5px 0;
+    color: #333;
+}
+
+.contenu {
+    padding: 10px;
+    background-color: #f9f9f9;
+}
+</style>
+"""
+
     custom_html += """
 <script>
     document.getElementById('closeButton').onclick = function() {

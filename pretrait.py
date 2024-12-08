@@ -5,6 +5,7 @@ import os
 import csv
 import re
 import functions_anfr
+import numpy as np
 
 def load_insee_data(filepath, encoding='utf-8'):
     """Charge les données issues du fichier de concordance entre code postal, nom de ville et code INSEE."""
@@ -117,6 +118,71 @@ def sort_technologies(row):
     # Reconstituer la ligne
     return ", ".join(sorted_elements)
 
+import numpy as np
+
+def find_and_isolate_duplicates(df: pd.DataFrame, location_threshold=0.001, address_similarity_threshold=0.5):
+    """
+    Efficiently find and isolate duplicates in the DataFrame based on location, address similarity, 
+    and matching technologies/providers, ensuring actions differ.
+    
+    :param df: DataFrame with columns 'coordonnees', 'adresse', 'technologie', 'operateur', and 'action'.
+    :param location_threshold: Maximum allowed difference between coordinates for a match.
+    :param address_similarity_threshold: Minimum similarity ratio between addresses for a match.
+    :return: DataFrame containing potential duplicates with normalized technologies, matching providers, and differing actions.
+    """
+    def are_locations_close(coords1: np.ndarray, coords2: np.ndarray, threshold: float) -> np.ndarray:
+        """Check which pairs of coordinates are within a given threshold."""
+        return np.sqrt(((coords1[:, None, 0] - coords2[None, :, 0]) ** 2) +
+                       ((coords1[:, None, 1] - coords2[None, :, 1]) ** 2)) <= threshold
+
+    def address_similarity_matrix(addresses: list) -> np.ndarray:
+        """Compute a similarity matrix for addresses."""
+        tokens_list = [set(addr.lower().split()) for addr in addresses]
+        matrix = np.zeros((len(tokens_list), len(tokens_list)))
+        for i, tokens1 in enumerate(tokens_list):
+            for j, tokens2 in enumerate(tokens_list):
+                if i != j:
+                    intersection = tokens1 & tokens2
+                    union = tokens1 | tokens2
+                    matrix[i, j] = len(intersection) / len(union) if union else 0
+        return matrix
+
+    # Normalize technologies into sets for comparison
+    df['technologie_set'] = df['technologie'].apply(lambda x: frozenset(x.split(", ")))
+
+    # Normalize coordinates into numpy array
+    coords = df['coordonnees'].apply(lambda c: tuple(map(float, c.split(", ")))).to_numpy()
+    coords_array = np.array(list(coords))
+    
+    # Check location closeness
+    location_matches = are_locations_close(coords_array, coords_array, location_threshold)
+
+    # Compute address similarity matrix
+    address_similarity = address_similarity_matrix(df['adresse'].tolist()) >= address_similarity_threshold
+
+    # Combine location and address similarity
+    combined_matches = location_matches & address_similarity
+
+    # Filter matches with same technology, same provider, and differing actions
+    tech_provider_action_matches = (
+        (df['technologie_set'].to_numpy()[:, None] == df['technologie_set'].to_numpy()[None, :]) &
+        (df['operateur'].to_numpy()[:, None] == df['operateur'].to_numpy()[None, :]) &
+        (df['action'].to_numpy()[:, None] != df['action'].to_numpy()[None, :])  # Actions must differ
+    )
+
+    duplicate_matches = combined_matches & tech_provider_action_matches
+
+    # Collect indices of duplicates
+    duplicate_indices = np.where(duplicate_matches)
+
+    # Create a mask to filter the DataFrame
+    is_duplicate = np.zeros(len(df), dtype=bool)
+    is_duplicate[np.unique(duplicate_indices[0])] = True
+
+    # Drop intermediate column
+    df = df.drop(columns=['technologie_set'])
+    return df[is_duplicate]  # Return the filtered DataFrame
+
 def merge_and_process(added_path, modified_path, removed_path, output_path, insee_data):
     """Fusionne trois CSV décrivant les modifications faites par les opérateurs en un seul CSV."""
     try:
@@ -154,6 +220,12 @@ def merge_and_process(added_path, modified_path, removed_path, output_path, inse
 
         # Keep only non-duplicated rows
         final_df = final_df[~duplicated]
+
+        duplicates_df = find_and_isolate_duplicates(final_df)
+
+        #duplicates_df.to_csv("/home/fraetech/dupesv2.csv")
+
+        final_df = final_df[~final_df.index.isin(duplicates_df.index)]
 
         bouygues_df = final_df.loc[final_df['operateur'] == "BOUYGUES TELECOM"]
         free_df = final_df.loc[(final_df['operateur'] == "FREE MOBILE") | (final_df['operateur'] == "TELCO OI")]

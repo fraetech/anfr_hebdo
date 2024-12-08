@@ -2,7 +2,7 @@
 import os
 import sys
 import subprocess
-import re  # Importer le module des expressions régulières
+import re
 import functions_anfr
 
 def run_script(script_name):
@@ -45,6 +45,7 @@ def check_and_execute(url, local_csv_dir, script_to_execute):
                 functions_anfr.log_message(f"Le script {script_to_execute} a été exécuté avec succès.")
     except Exception as e:
         functions_anfr.log_message(f"Une erreur s'est produite : {e}", "CRITICAL")
+        functions_anfr.send_sms(f"Erreur : {e}")
         sys.exit(1)
 
 def main():

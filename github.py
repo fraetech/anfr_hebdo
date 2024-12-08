@@ -111,6 +111,7 @@ def main(no_del_clone, no_del_file, no_copy_file, no_commit, no_push, debug):
     # 5. Pousser les modifications vers GitHub
     if not no_push:
         push_to_github(repo)
+        functions_anfr.send_sms("Poussé sur GitHub avec succès.")
     else:
         functions_anfr.log_message("Push sauté : demandé par argument.", "WARN")
 
