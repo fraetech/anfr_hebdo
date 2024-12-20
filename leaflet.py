@@ -160,7 +160,9 @@ def ajouter_marqueurs(dataframe, carte, files_path):
                         "BOUYGUES TELECOM": "#009BCE",
                         "FREE MOBILE": "#6D6E71",
                         "SFR": "#E40012",
-                        "ORANGE": "#FD7B02"
+                        "ORANGE": "#FD7B02",
+                        "TELCO OI": "#6D6E71",
+                        "SRR": "E40012"
                     }
                     
                     bandeau_couleur = operator_colors.get(operateur, "#000000")
