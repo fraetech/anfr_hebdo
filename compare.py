@@ -26,7 +26,7 @@ def csv_files_update(path_new_csv):
     # Calcul des dates limites
     date = datetime.now()
     date_limite_sup = date - timedelta(days=1)
-    date_limite_inf = date - timedelta(days=16)
+    date_limite_inf = date - timedelta(days=30)
     
     # Initialiser la variable pour le fichier le plus récent dans l'intervalle
     old_csv_path = None
@@ -48,7 +48,7 @@ def csv_files_update(path_new_csv):
         if file_timestamp < date_limite_inf:
             os.remove(path_check_file)
         
-        # Trouver le fichier dans l'intervalle de 1 jour à 16 jours
+        # Trouver le fichier dans l'intervalle de 1 jour à 30 jours
         elif date_limite_inf <= file_timestamp <= date_limite_sup:
             diff = date - file_timestamp
             if diff < min_diff and path_check_file != path_new_csv:
