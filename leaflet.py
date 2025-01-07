@@ -46,6 +46,9 @@ def get_icon_path(operateur, action_label, files_path):
         'TELCO OI': 'fmb',
         'SRR': 'sfr',
         'MISC': 'misc'
+        #ZEOP
+        #DIGICIEL
+        #GOUV NELLE CALEDONIE (OPT)
     }
 
     if operateur not in operateur_map.keys():
@@ -153,6 +156,8 @@ def ajouter_marqueurs(dataframe, carte, files_path):
                         cluster = clusters['Changements ID Support']
 
                 address = row['adresse']
+                footer = row['type_support'] + " - " + row['hauteur_support'] + " - " + row['proprietaire_support']
+
                 for operateur, actions in operateur_data.items():
                     bandeau_texte = f"<a href='https://data.anfr.fr/visualisation/map/?id=observatoire_2g_3g_4g&location=17,{latitude},{longitude}' target='_blank' style='color:#FFFFFF;'>Support n°{row['id_support']}</a>"
 
@@ -215,6 +220,8 @@ def ajouter_marqueurs(dataframe, carte, files_path):
                     <div class="contenu">
                         {html_content}
                     </div>
+                    <div class="titre">
+                        {footer}
                     """
                     marker = folium.Marker(
                         location=coord,
@@ -259,7 +266,7 @@ def ajouter_html(carte, timestamp):
     <a href='https://fraetech.github.io/maj-hebdo/free.html' target="_self">Carte Free</a>,
     <a href='https://fraetech.github.io/maj-hebdo/orange.html' target="_self">Carte Orange</a>,
     <a href='https://fraetech.github.io/maj-hebdo/sfr.html' target="_self">Carte SFR</a><br>
-    <b>Source :</b> <a href='https://data.anfr.fr/visualisation/information/?id=observatoire_2g_3g_4g' target='_blank'>OpenData ANFR</a> | <small>Carte générée le {date_h_gen} - v24.12.08</small></p>
+    <b>Source :</b> <a href='https://data.anfr.fr/visualisation/information/?id=observatoire_2g_3g_4g' target='_blank'>OpenData ANFR</a> | <small>Carte générée le {date_h_gen} - v25.01.07</small></p>
 </div>"""
 
     custom_html += """

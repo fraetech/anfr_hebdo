@@ -53,9 +53,9 @@ def maj_addr(row, insee_data):
         
         # Join the address parts into a single string
         addr = " ".join(addr_parts)
-        
+
         cc_insee = row['code_insee']
-        return addr + " " + conv_insee(cc_insee, insee_data)
+        return (addr + " " + conv_insee(cc_insee, insee_data)).upper()
     
     except KeyError as e:
         functions_anfr.log_message(f"Clé manquante dans les données de la ligne - {e}", "ERROR")
@@ -72,11 +72,11 @@ def preprocess_csv(file_path, source):
         functions_anfr.log_message(f"Le fichier '{file_path}' est introuvable.", "FATAL")
         raise SystemExit(1)
     except pd.errors.ParserError as e:
-        functions_anfr.log_message(f"Erreur de parsing lors du chargement du fichier '{file_path}' - {e}", "ERROR")
-        return pd.DataFrame()  # Return an empty DataFrame to allow the program to continue
+        functions_anfr.log_message(f"Erreur de parsing lors du chargement du fichier '{file_path}' - {e}", "FATAL")
+        raise SystemExit(1)
     except Exception as e:
-        functions_anfr.log_message(f"Problème lors du chargement du fichier '{file_path}' - {e}", "ERROR")
-        return pd.DataFrame()  # Same as above
+        functions_anfr.log_message(f"Problème lors du chargement du fichier '{file_path}' - {e}", "FATAL")
+        raise SystemExit(1)
 
 def determine_action(row):
     """Détermine l'action effectuée par l'opérateur à partir du fichier d'origine."""
@@ -191,8 +191,8 @@ def merge_and_process(added_path, modified_path, removed_path, output_path, inse
         removed_df = preprocess_csv(removed_path, 'comp_removed.csv')
 
         if added_df.empty or modified_df.empty or removed_df.empty:
-            functions_anfr.log_message("Un ou plusieurs fichiers de données sont vides ou n'ont pas été chargés correctement.", "ERROR")
-            return
+            functions_anfr.log_message("Un ou plusieurs fichiers de données sont vides ou n'ont pas été chargés correctement.", "FATAL")
+            raise SystemExit(1)
 
         added_df['action'] = 'AJO'
         modified_df['action'] = modified_df.apply(determine_action, axis=1)
@@ -200,30 +200,171 @@ def merge_and_process(added_path, modified_path, removed_path, output_path, inse
 
         final_df = pd.concat([added_df, modified_df, removed_df], ignore_index=True)
 
+        # Uniformiser les colonnes `type_support`, `hauteur_support`, et `proprietaire_support`
+        final_df['type_support'] = final_df['type_support_x'].combine_first(final_df['type_support_y'])
+        final_df['hauteur_support'] = final_df['hauteur_support_x'].combine_first(final_df['hauteur_support_y'])
+        final_df['proprietaire_support'] = final_df['proprietaire_support_x'].combine_first(final_df['proprietaire_support_y'])
+
         # Appliquer maj_addr avec insee_data préchargé
         final_df['adresse'] = final_df.apply(lambda row: maj_addr(row, insee_data), axis=1)
 
+        # Ajouter les colonnes nécessaires à l'agrégation
         final_df = final_df.groupby(['id_support', 'operateur', 'action']).agg({
             'technologie': ', '.join,
             'adresse': 'first',
             'code_insee': 'first',
             'coordonnees': 'first',
+            'type_support': 'first',
+            'hauteur_support': 'first',
+            'proprietaire_support': 'first',
         }).reset_index()
 
         final_df['technologie'] = final_df['technologie'].apply(sort_technologies)
 
-        # Sort the values
+        # Dictionnaire de correspondance des types de supports
+        correspondances_type_support = {
+            0: "Sans nature",
+            40: "Sémaphore",
+            41: "Phare",
+            4: "Château d'eau - réservoir",
+            38: "Immeuble",
+            39: "Local technique",
+            42: "Mât",
+            8: "Intérieur galerie",
+            9: "Intérieur sous-terrain",
+            10: "Tunnel",
+            11: "Mât béton",
+            12: "Mât métallique",
+            21: "Pylône",
+            17: "Bâtiment",
+            19: "Monument historique",
+            20: "Monument religieux",
+            22: "Pylône autoportant",
+            23: "Pylône autostable",
+            24: "Pylône haubané",
+            25: "Pylône treillis",
+            26: "Pylône tubulaire",
+            31: "Silo",
+            32: "Ouvrage d'art (pont, viaduc)",
+            33: "Tour hertzienne",
+            34: "Dalle en béton",
+            999999999: "Support non décrit",
+            43: "Fût",
+            44: "Tour de contrôle",
+            45: "Contre-poids au sol",
+            46: "Contre-poids sur shelter",
+            47: "Support DEFENSE",
+            48: "Pylône arbre",
+            49: "Ouvrage de signalisation (portique routier, panneau routier)",
+            50: "Balise ou bouée",
+            51: "XXX",
+            52: "Éolienne",
+            55: "Mobilier urbain"
+        }
+
+        # Transformation type support avec .map()
+        final_df['type_support'] = final_df['type_support'].astype(float).astype(int).map(correspondances_type_support).fillna("Inconnu")
+
+        correspondances_proprietaire_support = {
+            58: "DAUPHIN TELECOM",
+            60: "REUNION NUMERIQUE",
+            45: "RATP",
+            46: "Titulaire programme Radio/TV",
+            47: "Office des Postes et Télécom",
+            36: "Altitude Telecom",
+            37: "Antalis",
+            38: "One Cast",
+            40: "Onati",
+            41: "France Caraïbes Mobiles",
+            42: "FREE-MOBILE",
+            43: "Lagardère Active Média",
+            44: "Outremer Telecom",
+            1: "ANFR",
+            2: "Association",
+            3: "Aviation Civile",
+            4: "BOUYGUES",
+            5: "CCI, Ch Métier, Port Aut, Aéroport",
+            6: "Conseil Départemental",
+            7: "Conseil Régional",
+            8: "Coopérative Agricole, Vinicole",
+            9: "Copropriété, Syndic, SCI",
+            10: "CROSS",
+            11: "DDE",
+            13: "EDF ou GDF",
+            14: "Établissement de soins",
+            15: "État, Ministère",
+            16: "ORANGE Services Fixes",
+            17: "Syndicat des eaux, Adduction",
+            18: "État, Ministère",
+            19: "La Poste",
+            20: "Météo",
+            21: "ORANGE",
+            22: "Particulier",
+            23: "Phares et balises",
+            24: "SNCF Réseau",
+            25: "RTE",
+            26: "SDIS, secours, incendie",
+            27: "SFR",
+            28: "Société HLM",
+            29: "Société Privée",
+            30: "Sociétés d'Autoroutes",
+            31: "Société Réunionnaise de Radiotéléphonie",
+            32: "TDF",
+            33: "Towercast",
+            34: "Commune, communauté de communes",
+            35: "Voies navigables de France",
+            39: "État, Ministère",
+            49: "BOLLORE",
+            48: "9 CEGETEL",
+            50: "COMPLETEL",
+            51: "DIGICEL",
+            52: "EUTELSAT",
+            53: "EXPERTMEDIA",
+            54: "MEDIASERV",
+            55: "BELGACOM",
+            59: "Itas Tim",
+            56: "AIRBUS",
+            57: "GUYANE NUMERIQUE",
+            62: "SNCF",
+            64: "Pacific Mobile Telecom",
+            63: "VITI",
+            61: "GLOBECAST",
+            69: "ZEOP",
+            80: "REGIE HTES PYRENEES HAUT DEBIT",
+            76: "TOWEO",
+            79: "ONEWEB",
+            75: "ON TOWER FRANCE",
+            68: "CELLNEX",
+            73: "PHOENIX FRANCE INFRASTRUCTURES",
+            81: "VALOCIME",
+            70: "DGEN",
+            72: "HIVORY",
+            78: "NEXT TOWER",
+            67: "Service des Postes et Télécom",
+            65: "ATC FRANCE",
+            71: "HUBONE",
+            74: "TOTEM",
+            77: "Électricité De Tahiti",
+            66: "Telco OI",
+            12: "Autres"
+        }
+
+        # Transformation propriétaire support avec .map()
+        final_df['proprietaire_support'] = final_df['proprietaire_support'].astype(float).astype(int).map(correspondances_proprietaire_support).fillna("Inconnu")
+
+        # Transofmration hauteur support
+        final_df['hauteur_support'] = final_df['hauteur_support'].fillna(0).apply(lambda x: f"{str(x).replace('.', ',')}m")
+
+        # Trier les valeurs
         final_df = final_df.sort_values(['id_support', 'operateur', 'action']).reset_index(drop=True)
 
-        # Identify duplicate rows based on key columns
+        # Identifier les lignes en doublon
         duplicated = final_df.duplicated(subset=['id_support', 'operateur', 'technologie'], keep=False)
 
-        # Keep only non-duplicated rows
+        # Supprimer les doublons
         final_df = final_df[~duplicated]
 
         duplicates_df = find_and_isolate_duplicates(final_df)
-
-        #duplicates_df.to_csv("/home/fraetech/dupesv2.csv")
 
         final_df = final_df[~final_df.index.isin(duplicates_df.index)]
 
@@ -242,6 +383,8 @@ def merge_and_process(added_path, modified_path, removed_path, output_path, inse
     except Exception as e:
         functions_anfr.log_message(f"Échec lors du traitement des fichiers - {e}", "FATAL")
         raise SystemExit(1)
+
+
 
 
 def main(no_insee, no_process, debug):

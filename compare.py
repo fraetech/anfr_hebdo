@@ -79,9 +79,9 @@ def load_and_process_csv(file_path):
     try:
         df = pd.read_csv(file_path, sep=";")
         # Filtrer les colonnes nécessaires
-        df = df[['adm_lb_nom', 'sup_id', 'emr_lb_systeme', 'adr_lb_lieu', 'adr_lb_add1', 'adr_lb_add2', 'adr_lb_add3', 'com_cd_insee', 'coordonnees', 'statut']]
+        df = df[['adm_lb_nom', 'sup_id', 'emr_lb_systeme', 'nat_id', 'sup_nm_haut', 'tpo_id', 'adr_lb_lieu', 'adr_lb_add1', 'adr_lb_add2', 'adr_lb_add3', 'com_cd_insee', 'coordonnees', 'statut']]
         # Renommer les colonnes
-        df = df.rename(columns={'adm_lb_nom': 'operateur', 'sup_id': 'id_support', 'emr_lb_systeme': 'technologie', 'adr_lb_lieu': 'adresse0', 'adr_lb_add1': 'adresse1', 'adr_lb_add2': 'adresse2', 'adr_lb_add3': 'adresse3', 'com_cd_insee': 'code_insee', 'coordonnees': 'coordonnees', 'statut': 'statut'})
+        df = df.rename(columns={'adm_lb_nom': 'operateur', 'sup_id': 'id_support', 'emr_lb_systeme': 'technologie', 'nat_id': 'type_support', 'sup_nm_haut': 'hauteur_support', 'tpo_id': 'proprietaire_support', 'adr_lb_lieu': 'adresse0', 'adr_lb_add1': 'adresse1', 'adr_lb_add2': 'adresse2', 'adr_lb_add3': 'adresse3', 'com_cd_insee': 'code_insee', 'coordonnees': 'coordonnees', 'statut': 'statut'})
         return df
     except FileNotFoundError:
         functions_anfr.log_message(f"Le fichier '{file_path}' est introuvable.", "FATAL")
