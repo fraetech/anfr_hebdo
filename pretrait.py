@@ -384,9 +384,6 @@ def merge_and_process(added_path, modified_path, removed_path, output_path, inse
         functions_anfr.log_message(f"Échec lors du traitement des fichiers - {e}", "FATAL")
         raise SystemExit(1)
 
-
-
-
 def main(no_insee, no_process, debug):
     """Fonction régissant l'intégralité du programme."""
     path_app = os.path.dirname(os.path.abspath(__file__))
