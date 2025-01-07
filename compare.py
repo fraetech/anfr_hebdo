@@ -141,6 +141,7 @@ def main(no_file_update, no_download, no_compare, no_write, debug):
         functions_anfr.log_message("Téléchargment terminé")
     else:
         functions_anfr.log_message("Téléchargement sauté : demandé par argument", "WARN")
+        curr_csv_path = "PATHPATHPATHPATHPATH"
 
     # Détermine les CSV entre lesquels il faut faire la comparaison
     if not no_file_update:
