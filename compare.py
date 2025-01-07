@@ -44,7 +44,7 @@ def csv_files_update(path_new_csv):
         except ValueError:
             continue  # Ignorer les fichiers qui ne correspondent pas au format attendu
 
-        # Supprimer les fichiers plus vieux que 16 jours
+        # Supprimer les fichiers plus vieux que 30 jours
         if file_timestamp < date_limite_inf:
             os.remove(path_check_file)
         
