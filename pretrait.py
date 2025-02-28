@@ -263,7 +263,9 @@ def merge_and_process(added_path, modified_path, removed_path, output_path, inse
         }
 
         # Transformation type support avec .map()
-        final_df['type_support'] = final_df['type_support'].astype(float).astype(int).map(correspondances_type_support).fillna("Inconnu")
+        final_df['type_support'] = final_df['type_support'].fillna("Inconnu") \
+                                      .map(correspondances_type_support) \
+                                      .fillna("Inconnu")
 
         correspondances_proprietaire_support = {
             58: "DAUPHIN TELECOM",
@@ -350,7 +352,9 @@ def merge_and_process(added_path, modified_path, removed_path, output_path, inse
         }
 
         # Transformation propriétaire support avec .map()
-        final_df['proprietaire_support'] = final_df['proprietaire_support'].astype(float).astype(int).map(correspondances_proprietaire_support).fillna("Inconnu")
+        final_df['proprietaire_support'] = final_df['proprietaire_support'].fillna("Inconnu") \
+                                      .map(correspondances_proprietaire_support) \
+                                      .fillna("Inconnu")
 
         # Transofmration hauteur support
         final_df['hauteur_support'] = final_df['hauteur_support'].fillna(0).apply(lambda x: f"{str(x).replace('.', ',')}m")
