@@ -45,10 +45,13 @@ def get_icon_path(operateur, action_label, files_path):
         'BOUYGUES TELECOM': 'byt',
         'TELCO OI': 'fmb',
         'SRR': 'sfr',
+        'FREE CARAIBES' : 'fmb',
+        'ZEOP' : 'zop',
+        'DIGICEL' : 'dig',
+        'GOUV NELLE CALEDONIE (OPT)' : 'opt',
+        'OUTREMER TELECOM' : 'ott',
+        'PMT/VODAFONE' : 'pmt',
         'MISC': 'misc'
-        #ZEOP
-        #DIGICIEL
-        #GOUV NELLE CALEDONIE (OPT)
     }
 
     if operateur not in operateur_map.keys():
@@ -167,7 +170,13 @@ def ajouter_marqueurs(dataframe, carte, files_path):
                         "SFR": "#E40012",
                         "ORANGE": "#FD7B02",
                         "TELCO OI": "#6D6E71",
-                        "SRR": "E40012"
+                        "SRR": "#E40012",
+                        "FREE CARAIBES" : "#6D6E71",
+                        "ZEOP" : "#681260",
+                        "DIGICEL" : "#E4002B",
+                        "GOUV NELLE CALEDONIE (OPT)" : "#292C83",
+                        "OUTREMER TELECOM" : "#DE006F",
+                        "PMT/VODAFONE" : "#FF0E00",
                     }
                     
                     bandeau_couleur = operator_colors.get(operateur, "#000000")
@@ -266,7 +275,7 @@ def ajouter_html(carte, timestamp):
     <a href='https://fraetech.github.io/maj-hebdo/free.html' target="_self">Carte Free</a>,
     <a href='https://fraetech.github.io/maj-hebdo/orange.html' target="_self">Carte Orange</a>,
     <a href='https://fraetech.github.io/maj-hebdo/sfr.html' target="_self">Carte SFR</a><br>
-    <b>Source :</b> <a href='https://data.anfr.fr/visualisation/information/?id=observatoire_2g_3g_4g' target='_blank'>OpenData ANFR</a> | <small>Carte générée le {date_h_gen} - v25.02.28</small></p>
+    <b>Source :</b> <a href='https://data.anfr.fr/visualisation/information/?id=observatoire_2g_3g_4g' target='_blank'>OpenData ANFR</a> | <small>Carte générée le {date_h_gen} - v25.03.21</small></p>
 </div>"""
 
     custom_html += """

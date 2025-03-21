@@ -7,18 +7,23 @@ from datetime import datetime, timedelta
 import requests
 import functions_anfr
 
-def download_data(url, save_path):
-    """Télécharge les données depuis l'URL spécifiée et les sauvegarde dans le fichier indiqué."""
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        with open(save_path, 'wb') as file:
-            file.write(response.content)
-        functions_anfr.log_message(f"INFO: Téléchargement des données terminé avec succès.")
-        return save_path
-    except requests.exceptions.RequestException as e:
-        functions_anfr.log_message(f"FATAL: Échec du téléchargement des données - {e}")
-        raise SystemExit(1)
+def download_data(url, save_path, max_retries=3, delay=60):
+    """Télécharge les données depuis l'URL spécifiée avec 3 essais en cas d'échec."""
+    for attempt in range(1, max_retries + 1):
+        try:
+            response = requests.get(url, timeout=180)
+            response.raise_for_status()
+            with open(save_path, 'wb') as file:
+                file.write(response.content)
+            functions_anfr.log_message("Téléchargement des données terminé avec succès.")
+            return save_path
+        except requests.exceptions.RequestException as e:
+            functions_anfr.log_message(f"Tentative {attempt}/{max_retries} échouée - {e}", "WARN")
+            if attempt < max_retries:
+                time.sleep(delay)
+            else:
+                functions_anfr.log_message(f"Échec du téléchargement après {max_retries} tentatives.", "ERROR")
+                raise SystemExit(1)
     
 def csv_files_update(path_new_csv):
     """Détermine les CSV entre lesquels il faut effectuer la comparaison à partir de leurs horodatages."""
@@ -138,7 +143,7 @@ def main(no_file_update, no_download, no_compare, no_write, debug):
         download_path_r = os.path.join(download_path, filename_from_anfr)
         functions_anfr.log_message("Début du téléchargement du fichier de data.anfr.fr")
         curr_csv_path = download_data(url, download_path_r)
-        functions_anfr.log_message("Téléchargment terminé")
+        functions_anfr.log_message("Téléchargement terminé")
     else:
         functions_anfr.log_message("Téléchargement sauté : demandé par argument", "WARN")
         curr_csv_path = "PATHPATHPATHPATHPATH"
@@ -190,6 +195,11 @@ def main(no_file_update, no_download, no_compare, no_write, debug):
             string_sms += write_results(df_added, os.path.join(path_app, 'files', 'compared', 'comp_added.csv'), "Nouvelles lignes : ")
         functions_anfr.log_message("Ecriture des résultats terminée")
         functions_anfr.send_sms(string_sms)
+        if all(x is None for x in (df_removed, df_modified, df_added)):
+            functions_anfr.log_message("MAJ ANFR vide, fin du programme", "FATAL")
+            functions_anfr.send_sms("MAJ vide, annulé.")
+            raise SystemExit(1)
+
     else:
         functions_anfr.log_message("Ecriture des résultats sautée : demandé par argument", "WARN")
 

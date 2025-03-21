@@ -3,6 +3,7 @@ import os
 import sys
 import subprocess
 import re
+import signal
 import functions_anfr
 
 def run_script(script_name):
@@ -17,9 +18,18 @@ def run_script(script_name):
         functions_anfr.log_message(f"Une erreur inattendue est survenue lors de l'exécution de {script_name}: {e}", "ERROR")
         return 1
 
-def check_and_execute(url, local_csv_dir, script_to_execute):
-    """Vérifie la présence du fichier localement et exécute le script core.py si le fichier n'est pas présent."""
+def timeout_handler(signum, frame):
+    """Gestionnaire de signal pour arrêter l'exécution en cas de dépassement du délai."""
+    raise TimeoutError("Le temps d'exécution alloué a été dépassé.")
+
+def check_and_execute(url, local_csv_dir, script_to_execute, timeout=300):
+    """Vérifie la présence du fichier localement et exécute le script core.py si le fichier n'est pas présent,
+       avec un délai maximal d'exécution."""
     try:
+        # Définir le gestionnaire de timeout
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.alarm(timeout)  # Déclencher l'alarme pour le temps limite
+
         # Récupérer le nom du fichier sur le serveur
         filename = functions_anfr.get_filename_from_server(url)
         local_csv_path = os.path.join(local_csv_dir, filename)
@@ -37,12 +47,17 @@ def check_and_execute(url, local_csv_dir, script_to_execute):
             functions_anfr.log_message(f"Le fichier {filename} est déjà présent. Aucun téléchargement nécessaire.")
         else:
             functions_anfr.log_message(f"Le fichier {filename} n'est pas présent. Exécution de {script_to_execute}...")
-            # Exécuter le script de mise à jour (core.py)
             return_code = run_script(script_to_execute)
             if return_code != 0:
                 functions_anfr.log_message(f"L'exécution de {script_to_execute} a échoué avec le code de retour {return_code}.", "ERROR")
             else:
                 functions_anfr.log_message(f"Le script {script_to_execute} a été exécuté avec succès.")
+
+        signal.alarm(0)  # Annuler l'alarme si tout s'est bien passé
+    except TimeoutError:
+        functions_anfr.log_message("Le temps d'exécution maximum a été dépassé.", "CRITICAL")
+        functions_anfr.send_sms("Erreur : Temps d'exécution dépassé.")
+        sys.exit(1)
     except Exception as e:
         functions_anfr.log_message(f"Une erreur s'est produite : {e}", "CRITICAL")
         functions_anfr.send_sms(f"Erreur : {e}")
