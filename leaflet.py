@@ -34,9 +34,8 @@ def creer_carte():
         raise
     return carte
 
-def get_icon_path(operateur, action_label, files_path):
+def get_icon_path(operateur, action_label):
     """Fonction pour obtenir le chemin de l'icône personnalisée en fonction de l'opérateur et de l'action."""
-    icon_directory = os.path.join(files_path, 'icons')  # Dossier où sont stockées les icônes
     
     operateur_map = {
         'ORANGE': 'ora',
@@ -66,20 +65,25 @@ def get_icon_path(operateur, action_label, files_path):
         'Changement Localisation': 'chl',  # Ajout de CHL
         'Changement ID Support': 'chi'  # Ajout de CHI
     }
+    
+    if len(action_label) == 1: # S'il n'y a qu'une seule action faite : on met l'icône correspondant à l'action
+        icon_filename = f"{operateur_map[operateur].lower()}_{action_map[action_label[0]].lower()}.avif"
+        icon_path = os.path.join(icon_dir, icon_filename)
 
-    icon_filename = f"{operateur_map[operateur].lower()}_{action_map[action_label].lower()}.avif"
-    icon_path = os.path.join(icon_directory, icon_filename)
+    if len(action_label) > 1: # S'il y a plus d'une action effectuée en mm tps, on met l'icône de l'opé par def.
+        icon_filename = f"{operateur_map[operateur].lower()}.avif"
+        icon_path = os.path.join(icon_dir, icon_filename)
     
     if not os.path.exists(icon_path):
         try:
             icon_filename = f"misc_{action_map[action_label].lower()}.avif"
-            icon_path = os.path.join(icon_directory, icon_filename)
+            icon_path = os.path.join(icon_dir, icon_filename)
         except Exception as e:
             functions_anfr.log_message(f"Impossible de trouver l'icône {icon_filename}: {e}", "FATAL")
             raise
     return icon_path
 
-def ajouter_marqueurs(dataframe, carte, files_path):
+def ajouter_marqueurs(dataframe, carte):
     """Ajout les marqueurs à la carte Folium."""
     try:
         feature_groups = {
@@ -134,34 +138,42 @@ def ajouter_marqueurs(dataframe, carte, files_path):
 
                     if operateur not in operateur_data:
                         operateur_data[operateur] = {"ajout": [], "activation": [], "extinction": [], "suppression": [],
-                                                    "changement adresse": [], "changement localisation": [], "changement id support": []}
+                                                    "changement adresse": [], "changement localisation": [], "changement id support": [], "type modif": []}
 
                     if action_label == "Ajout":
                         operateur_data[operateur]["ajout"].append(support_row['technologie'])
+                        operateur_data[operateur]["type modif"].append("Ajout")
                         cluster = clusters['Ajouts']
                     elif action_label == "Activation":
                         operateur_data[operateur]["activation"].append(support_row['technologie'])
+                        operateur_data[operateur]["type modif"].append("Activation")
                         cluster = clusters['Activations']
                     elif action_label == "Extinction":
                         operateur_data[operateur]["extinction"].append(support_row['technologie'])
+                        operateur_data[operateur]["type modif"].append("Extinction")
                         cluster = clusters['Extinctions']
                     elif action_label == "Suppression":
                         operateur_data[operateur]["suppression"].append(support_row['technologie'])
+                        operateur_data[operateur]["type modif"].append("Suppression")
                         cluster = clusters['Suppressions']
                     elif action_label == "Changement Adresse":
                         operateur_data[operateur]["changement adresse"].append(support_row['technologie'])
+                        operateur_data[operateur]["type modif"].append("Changement Adresse")
                         cluster = clusters['Changements Adresse']
                     elif action_label == "Changement Localisation":
                         operateur_data[operateur]["changement localisation"].append(support_row['technologie'])
+                        operateur_data[operateur]["type modif"].append("Changement Localisation")
                         cluster = clusters['Changements Localisation']
                     elif action_label == "Changement ID Support":
                         operateur_data[operateur]["changement id support"].append(support_row['technologie'])
+                        operateur_data[operateur]["type modif"].append("Changement ID Support")
                         cluster = clusters['Changements ID Support']
 
                 address = row['adresse']
                 footer = row['type_support'] + " - " + row['hauteur_support'] + " - " + row['proprietaire_support']
 
                 for operateur, actions in operateur_data.items():
+
                     bandeau_texte = f"<a href='https://data.anfr.fr/visualisation/map/?id=observatoire_2g_3g_4g&location=17,{latitude},{longitude}' target='_blank' style='color:#FFFFFF;'>Support n°{row['id_support']}</a>"
 
                     operator_colors = {
@@ -189,7 +201,7 @@ def ajouter_marqueurs(dataframe, carte, files_path):
                         <img src="https://fraetech.github.io/maj-hebdo/icons/maps.avif" alt="Google Maps">
                     </a>
                     """
-                    if row['operateur'] == 'FREE MOBILE' or row['operateur'] == 'TELCO OI':
+                    if operateur == 'FREE MOBILE' or operateur == 'TELCO OI' or operateur == 'FREE CARAIBES':
                         links_html += f"""
                         <a href='https://rncmobile.net/site/{latitude},{longitude}' target='_blank' class="icone">
                             <img src="https://fraetech.github.io/maj-hebdo/icons/rnc.avif" alt="RNC Mobile">
@@ -214,7 +226,7 @@ def ajouter_marqueurs(dataframe, carte, files_path):
                         html_content += f"<li><strong>Changement ID support. Ancien ID : </strong><br> {', '.join(actions['changement id support'])}</li>"
                     html_content += "</ul>"
 
-                    icon_path = get_icon_path(operateur, action_label, files_path)
+                    icon_path = get_icon_path(operateur, operateur_data[operateur]["type modif"])
 
                     popup_html = f"""
                     <div class="bandeau" style="background-color: {bandeau_couleur};">
@@ -241,7 +253,6 @@ def ajouter_marqueurs(dataframe, carte, files_path):
                     marker.add_to(cluster)
         except Exception as e:
             functions_anfr.log_message(f"Erreur lors de l'ajout des marqueurs pour le support {support_id}: {e}", "ERROR")
-
 
 def ajouter_html(carte, timestamp):
     date_h_gen = datetime.now().strftime("%d/%m/%Y à %H:%M:%S")
@@ -275,7 +286,7 @@ def ajouter_html(carte, timestamp):
     <a href='https://fraetech.github.io/maj-hebdo/free.html' target="_self">Carte Free</a>,
     <a href='https://fraetech.github.io/maj-hebdo/orange.html' target="_self">Carte Orange</a>,
     <a href='https://fraetech.github.io/maj-hebdo/sfr.html' target="_self">Carte SFR</a><br>
-    <b>Source :</b> <a href='https://data.anfr.fr/visualisation/information/?id=observatoire_2g_3g_4g' target='_blank'>OpenData ANFR</a> | <small>Carte générée le {date_h_gen} - v25.03.21</small></p>
+    <b>Source :</b> <a href='https://data.anfr.fr/visualisation/information/?id=observatoire_2g_3g_4g' target='_blank'>OpenData ANFR</a> | <small>Carte générée le {date_h_gen} - v25.04.10</small></p>
 </div>"""
 
     custom_html += """
@@ -369,9 +380,10 @@ def main(no_load, no_create_map, no_indicators, no_save_map, operateur, debug):
     """Fonction principale régissant le programme."""
     # Spécifie les chemins des fichiers
     path_app = os.path.dirname(os.path.abspath(__file__))
-    files_path = os.path.join(path_app, 'files')
-    pretraite_path = os.path.join(files_path, 'pretraite')
-    carte_path = os.path.join(files_path, 'out')
+    global icon_dir
+    icon_dir = os.path.join(path_app, 'files', 'icons')
+    pretraite_path = os.path.join(path_app, 'files', 'pretraite')
+    carte_path = os.path.join(path_app, 'files', 'out')
 
     with open(os.path.join(path_app, 'files', 'compared', 'timestamp.txt'), "r") as f:
         timestamp = str(f.read())
@@ -392,7 +404,7 @@ def main(no_load, no_create_map, no_indicators, no_save_map, operateur, debug):
             functions_anfr.log_message(f' Création de la carte sautée : demandé par argument')
 
         if not no_indicators:
-            ajouter_marqueurs(pretraite_df, my_map, files_path)
+            ajouter_marqueurs(pretraite_df, my_map)
             functions_anfr.log_message("Marqueurs ajoutés sur la carte")
         else:
             functions_anfr.log_message("Ajout des marqueurs sur la carte sauté : demandé par argument", "WARN")
