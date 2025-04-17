@@ -105,11 +105,11 @@ def sort_technologies(row):
     # Fonction de tri
     def sort_key(tech):
         # Extraire la technologie et la fréquence avec une regex
-        match = re.match(r"(\D+)\s(\d+)", tech)
+        match = re.match(r"\b((?:GSM|UMTS|LTE))\s(\d{3,4})\b|\b(5G NR)\s(\d{3,5})\b", tech)
         if match:
-            technology = match.group(1).strip()
-            frequency = int(match.group(2))
-            return (tech_order[technology], frequency)
+            technology = match.group(1) or match.group(3)
+            frequency = match.group(2) or match.group(4)
+            return (tech_order.get(technology, float('inf')), int(frequency))
         return (float('inf'), 0)  # Au cas où le format est incorrect, mettre à la fin
     
     # Trier les éléments en utilisant la clé de tri définie

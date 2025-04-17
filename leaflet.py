@@ -211,13 +211,29 @@ def ajouter_marqueurs(dataframe, carte):
                     html_content = ""
                     html_content += "<ul>"
                     if actions["ajout"]:
-                        html_content += f"<li><strong>Nouvelle(s) fréquence(s) :</strong><br> {', '.join(actions['ajout'])}</li>"
+                        techs = [t.strip() for t in actions["ajout"][0].split(",")]
+                        if len(techs) > 1:
+                            html_content += f"<li><strong>Nouvelles fréquences :</strong><br> {', '.join(actions['ajout'])}</li>"
+                        else:
+                            html_content += f"<li><strong>Nouvelle fréquence :</strong><br> {', '.join(actions['ajout'])}</li>"
                     if actions["activation"]:
-                        html_content += f"<li><strong>Activation fréquence :</strong><br> {', '.join(actions['activation'])}</li>"
+                        techs = [t.strip() for t in actions["activation"][0].split(",")]
+                        if len(techs) > 1:
+                            html_content += f"<li><strong>Activation des fréquences :</strong><br> {', '.join(actions['activation'])}</li>"
+                        else:
+                            html_content += f"<li><strong>Activation de la fréquence :</strong><br> {', '.join(actions['activation'])}</li>"
                     if actions["extinction"]:
-                        html_content += f"<li><strong>Extinction fréquence :</strong><br> {', '.join(actions['extinction'])}</li>"
+                        techs = [t.strip() for t in actions["activation"][0].split(",")]
+                        if len(techs) > 1:
+                            html_content += f"<li><strong>Extinction des fréquences :</strong><br> {', '.join(actions['extinction'])}</li>"
+                        else:
+                            html_content += f"<li><strong>Extinction de la fréquence :</strong><br> {', '.join(actions['extinction'])}</li>"
                     if actions["suppression"]:
-                        html_content += f"<li><strong>Suppression fréquence :</strong><br> {', '.join(actions['suppression'])}</li>"
+                        techs = [t.strip() for t in actions["activation"][0].split(",")]
+                        if len(techs) > 1:
+                            html_content += f"<li><strong>Suppression des fréquences :</strong><br> {', '.join(actions['suppression'])}</li>"
+                        else:
+                            html_content += f"<li><strong>Suppression de la fréquence :</strong><br> {', '.join(actions['suppression'])}</li>"
                     if actions["changement adresse"]:
                         html_content += f"<li><strong>Changement d'adresse. Ancienne adresse : </strong><br> {', '.join(actions['changement adresse'])}</li>"
                     if actions["changement localisation"]:
