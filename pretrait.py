@@ -6,6 +6,14 @@ import csv
 import re
 import functions_anfr
 import numpy as np
+from collections import defaultdict
+
+ZB_TECHNOS = {"LTE 700", "LTE 800", "UMTS 900"}
+fc_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "files", "compared", "timestamp.txt")
+with open(fc_file, "r") as f:
+    lines = f.readlines()
+    OLD_CSV_PATH = lines[1].strip()
+    NEW_CSV_PATH = lines[2].strip()
 
 def load_insee_data(filepath, encoding='utf-8'):
     """Charge les données issues du fichier de concordance entre code postal, nom de ville et code INSEE."""
@@ -118,8 +126,6 @@ def sort_technologies(row):
     # Reconstituer la ligne
     return ", ".join(sorted_elements)
 
-import numpy as np
-
 def find_and_isolate_duplicates(df: pd.DataFrame, location_threshold=0.001, address_similarity_threshold=0.5):
     """
     Efficiently find and isolate duplicates in the DataFrame based on location, address similarity, 
@@ -182,6 +188,55 @@ def find_and_isolate_duplicates(df: pd.DataFrame, location_threshold=0.001, addr
     # Drop intermediate column
     df = df.drop(columns=['technologie_set'])
     return df[is_duplicate]  # Return the filtered DataFrame
+
+try:
+    df_old = pd.read_csv(OLD_CSV_PATH, sep=";", on_bad_lines="skip", dtype=str)
+    df_new = pd.read_csv(NEW_CSV_PATH, sep=";", on_bad_lines="skip", dtype=str)
+except Exception as e:
+    functions_anfr.log_message(f"Erreur lors de la lecture du CSV : {e}", "ERROR")
+    raise
+
+def extract_tech_dict(df):
+    """Prépare un DataFrame simplifié pour traitement ultérieur par is_zb()."""
+    df_clean = df.dropna(subset=["sup_id", "adm_lb_nom", "emr_lb_systeme"])
+    return (
+        df_clean.groupby(["sup_id", "adm_lb_nom"])["emr_lb_systeme"]
+        .unique()
+        .apply(set)
+        .to_dict()
+    )
+
+techs_new_map = extract_tech_dict(df_new)
+techs_old_map = extract_tech_dict(df_old)
+
+def is_zb(support_id, operateur):
+    """Détermine si, pour un sup_id et un opé donné, une antenne est une 'Zone Blanche' ou non."""
+    key = (str(support_id).strip(), operateur)
+    techs_new = techs_new_map.get(key, set())
+    techs_old = techs_old_map.get(key, set())
+
+    return (
+        (techs_new and techs_new <= ZB_TECHNOS)
+        or
+        (techs_old and techs_old <= ZB_TECHNOS)
+    )
+
+def build_new_status_map(df_old):
+    """Prépare un dictionnaire simplifié pour traitement ultérieur par is_new()."""
+    df_old_clean = df_old.dropna(subset=["sup_id", "adm_lb_nom", "statut"])
+    grouped = df_old_clean.groupby(["sup_id", "adm_lb_nom"])["statut"].apply(list)
+    return defaultdict(list, grouped.to_dict())
+
+new_status_dict = build_new_status_map(df_old)
+
+def is_new(support_id, operateur):
+    """Détermine si, pour un sup_id et un opé donné, une antenne est 'Nouvelle' ou non."""
+    support_id = str(support_id)
+    key = (support_id, operateur)
+    statuts = new_status_dict.get(key, [])
+    if not statuts:
+        return True
+    return all(stat == "Projet approuvé" for stat in statuts)
 
 def merge_and_process(added_path, modified_path, removed_path, output_path, insee_data):
     """Fusionne trois CSV décrivant les modifications faites par les opérateurs en un seul CSV."""
@@ -371,6 +426,64 @@ def merge_and_process(added_path, modified_path, removed_path, output_path, inse
         duplicates_df = find_and_isolate_duplicates(final_df)
 
         final_df = final_df[~final_df.index.isin(duplicates_df.index)]
+
+        # On arrondit les coordonnées pour éviter de surcharger le CSV
+        final_df['coordonnees'] = (
+            final_df['coordonnees']
+            .str.split(',', expand=True)
+            .astype(float)
+            .round(4)
+            .astype(str)
+            .agg(','.join, axis=1)
+        )
+
+        # Liste des fréquences autorisées sur une ligne pour qu'elle soit traitée par is_zb()
+        autorisées_zb = {"LTE 700", "LTE 800", "UMTS 900"}
+
+        # Liste des actions autorisées sur une ligne pour qu'elle soit traitée par is_new()
+        autorisées_actions = {"ALL", "AJO", "SUP"}
+
+        # Préparation des paires uniques valides pour is_zb()
+        valid_zb_rows = final_df[
+            final_df["technologie_set"].apply(lambda ts: set(ts).issubset(autorisées_zb))
+        ]
+        zb_pairs = valid_zb_rows[["id_support", "operateur"]].drop_duplicates()
+
+        # Appel une seule fois par (id_support, opérateur)
+        zb_status_map = {
+            (row["id_support"], row["operateur"]): is_zb(row["id_support"], row["operateur"])
+            for _, row in zb_pairs.iterrows()
+        }
+
+        # Application avec fallback à False pour les cas non concernés
+        def compute_is_zb(row):
+            key = (row["id_support"], row["operateur"])
+            return zb_status_map.get(key, False)
+
+        final_df["is_zb"] = final_df.apply(compute_is_zb, axis=1)
+
+
+        # Préparation des paires uniques valides pour is_new()
+        valid_new_rows = final_df[
+            final_df["action"].str.strip().str.upper().isin(autorisées_actions)
+        ]
+        unique_pairs = valid_new_rows[["id_support", "operateur"]].drop_duplicates()
+
+        # Appel une seule fois par (id_support, opérateur)
+        new_status_map = {
+            (row["id_support"], row["operateur"]): is_new(row["id_support"], row["operateur"])
+            for _, row in unique_pairs.iterrows()
+        }
+
+        # Application avec fallback à False pour les cas non concernés
+        def compute_is_new(row):
+            key = (row["id_support"], row["operateur"])
+            return new_status_map.get(key, False)
+
+        final_df["is_new"] = final_df.apply(compute_is_new, axis=1)
+
+        # On vire la colonne qui fait doublon de "technologie"
+        final_df = final_df.drop('technologie_set', axis=1)
 
         bouygues_df = final_df.loc[final_df['operateur'] == "BOUYGUES TELECOM"]
         free_df = final_df.loc[(final_df['operateur'] == "FREE MOBILE") | (final_df['operateur'] == "TELCO OI")]

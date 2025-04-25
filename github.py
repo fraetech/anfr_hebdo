@@ -1,130 +1,61 @@
 #!/usr/bin/env python
-from dotenv import load_dotenv
-from datetime import datetime
-import git
-from git import rmtree
-import os
-import shutil
-import git.repo
-import argparse
 import sys
+import shutil
+from pathlib import Path
+from dotenv import load_dotenv
+import os
+import subprocess
 import functions_anfr
 
-def del_clone_repo(local_dir, repo_url, token):
-    """Clone un repo dans un local_dir donné à partir du repo_url, un token doit être donné."""
-    if os.path.exists(local_dir):
-        rmtree(local_dir)
-    repo = git.Repo.clone_from(repo_url.replace("https://", f"https://{token}@"), local_dir)
-    return repo
+fc_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "files", "compared", "timestamp.txt")
+with open(fc_file, "r") as f:
+    lines = f.readlines()
+    TIMESTAMP = lines[0].strip()
 
-def del_file_repo(local_dir, filename):
-    """Supprime un fichier dans un repo téléchargé en local."""
-    file_to_del = os.path.join(local_dir, filename)
-    if os.path.exists(file_to_del):
-        os.remove(file_to_del)
-        functions_anfr.log_message(f"Fichier {file_to_del} supprimé.")
+# Charger le token depuis .env
+load_dotenv()
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+
+if not GITHUB_TOKEN:
+    functions_anfr.log_message("GITHUB_TOKEN non défini dans le fichier .env.", "FATAL")
+    sys.exit(1)
+
+# Vérifier l'argument
+if len(sys.argv) != 2 or sys.argv[1] not in {"hebdo", "mensu", "trim"}:
+    functions_anfr.log_message("Usage : python github.py [hebdo|mensu|trim]", "FATAL")
+    sys.exit(1)
+
+update_type = sys.argv[1]
+path_app = Path(__file__).resolve().parent
+source_dir = path_app / "files" / "pretraite"
+repo_dir = path_app.parent / "maj-hebdo"
+dest_dir = repo_dir / "files" / update_type
+files = ["index.csv", "bouygues.csv", "free.csv", "orange.csv", "sfr.csv"]
+
+# Créer le dossier cible
+dest_dir.mkdir(parents=True, exist_ok=True)
+
+# Copier les fichiers
+for file_name in files:
+    src = source_dir / file_name
+    dst = dest_dir / file_name
+    if src.exists():
+        shutil.copy2(src, dst)
+        functions_anfr.log_message(f"Copié : {src} → {dst}", "INFO")
     else:
-        functions_anfr.log_message(f"Fichier {file_to_del} non trouvé.")
+        functions_anfr.log_message(f"Fichier manquant : {src}", "WARN")
 
-def copy_file_to_repo(local_dir, file_path_in_repo, path_file_to_copy):
-    """Copie un fichier dans un repo local."""
-    shutil.copy2(path_file_to_copy, os.path.join(local_dir, file_path_in_repo))
-    functions_anfr.log_message(f"Nouveau fichier {path_file_to_copy} copié dans le dépôt.")
+# Commit & Push
+try:
+    subprocess.run(["git", "-C", str(repo_dir), "add", str(dest_dir)], check=True)
+    subprocess.run(["git", "-C", str(repo_dir), "commit", "-m", f"Mise à jour {update_type} du {TIMESTAMP}"], check=True)
 
-def commit_modif(repo):
-    """ATTENTION !!! Fonction adaptée uniquement au cas présent de la MAJ Hebdo de l'ANFR !!! ATTENTION"""
-    now = datetime.now()
-    repo.git.add("index.html")
-    repo.git.add("bouygues.html")
-    repo.git.add("free.html")
-    repo.git.add("orange.html")
-    repo.git.add("sfr.html")
-    repo.index.commit(f"Maj du {now.strftime('%d/%m/%Y à %H:%M:%S')}")
-    functions_anfr.log_message("Modification commitées.")
-
-def push_to_github(repo):
-    """Push le repo vers GitHub."""
-    origin = repo.remote(name="origin")
-    origin.push()
-    functions_anfr.log_message("Modification poussées vers GitHub.")
-
-def main(no_del_clone, no_del_file, no_copy_file, no_commit, no_push, debug):
-    """Fonction main régissant l'intégralité du programme."""
-    load_dotenv()
-    if debug:
-        functions_anfr.log_message("Pas de message de debug dans ce programme.")
-
-    # Variables
-    path_app = os.path.dirname(os.path.abspath(__file__))
-    new_index_file = os.path.join(path_app, "files", "out", "index.html")
-    token = os.getenv("GITHUB_TOKEN")
-    repo_url = "https://github.com/fraetech/maj-hebdo"
-    local_dir = os.path.join(path_app, "maj_hebdo")
-    
-    index = 'index.html'
-    new_index_file = os.path.join(path_app, "files", "out", "index.html")
-    bouygues = 'bouygues.html'
-    new_bouygues_file = os.path.join(path_app, "files", "out", "bouygues.html")
-    free = 'free.html'
-    new_free_file = os.path.join(path_app, "files", "out", "free.html")
-    orange = 'orange.html'
-    new_orange_file = os.path.join(path_app, "files", "out", "orange.html")
-    sfr = 'sfr.html'
-    new_sfr_file = os.path.join(path_app, "files", "out", "sfr.html")
-
-    # 1. Supprimer puis cloner le dépôt (on fait une suppression afin d'éviter les fichiers aux permissions limitées de Git.)
-    if not no_del_clone:
-        repo = del_clone_repo(local_dir, repo_url, token)
-        functions_anfr.log_message("Repo supprimé puis cloné avec succès.")
-    else:
-        functions_anfr.log_message("La suppression du repo ainsi que son clonage ont été sautés : demandé par argument.", "WARN")
-        functions_anfr.log_message("Si cette étape est sautée, le repo n'est pas initialisé. Impossible de continuer.", "FATAL")
-        sys.exit(1)
-
-    # 2. Supprimer l'ancien fichier index.html
-    if not no_del_file:
-        del_file_repo(local_dir, index)
-        del_file_repo(local_dir, bouygues)
-        del_file_repo(local_dir, free)
-        del_file_repo(local_dir, orange)
-        del_file_repo(local_dir, sfr)
-    else:
-        functions_anfr.log_message("Suppression du fichier dans le repo sautée : demandé par argument.", "WARN")
-
-    # 3. Copier le nouveau fichier index.html
-    if not no_copy_file:
-        copy_file_to_repo(local_dir, index, new_index_file)
-        copy_file_to_repo(local_dir, bouygues, new_bouygues_file)
-        copy_file_to_repo(local_dir, free, new_free_file)
-        copy_file_to_repo(local_dir, orange, new_orange_file)
-        copy_file_to_repo(local_dir, sfr, new_sfr_file)
-    else:
-        
-        functions_anfr.log_message("Copie du/des nouveaux fichier(s) dans le repo sautée : demandé par argument. Vous n'allez donc rien 'commiter' ?", "WARN")
-
-    # 4. Commit les modifications
-    if not no_commit:
-        commit_modif(repo)
-    else:
-        functions_anfr.log_message("Commit sauté : demandé par argument. Vous n'allez donc rien pousser ?", "WARN")
-
-    # 5. Pousser les modifications vers GitHub
-    if not no_push:
-        push_to_github(repo)
-        functions_anfr.send_sms("Poussé sur GitHub avec succès.")
-    else:
-        functions_anfr.log_message("Push sauté : demandé par argument.", "WARN")
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Control which functions to skip.")
-
-    # Ajouter des arguments pour sauter des étapes
-    parser.add_argument('--no-del-clone', action='store_true', help="Ne supprimer le repo stocké localement et le re-télécharger.")
-    parser.add_argument('--no-del-file', action='store_true', help="Ne pas supprimer le fichier existant du repo.")
-    parser.add_argument('--no-copy-file', action='store_true', help="Ne pas copier le nouveau fichier dans le repo.")
-    parser.add_argument('--no-commit', action='store_true', help="Ne pas 'commiter' les modifications.")
-    parser.add_argument('--no-push', action='store_true', help="Ne pas pousser les modifications vers GitHub.")
-    parser.add_argument('--debug', action='store_true', help="Afficher les messages de debug.")
-
-    args = parser.parse_args()
-    main(no_del_clone=args.no_del_clone, no_del_file=args.no_del_file, no_copy_file=args.no_copy_file, no_commit=args.no_commit, no_push=args.no_push, debug=args.debug)
+    subprocess.run(
+    ["git", "-C", str(repo_dir), "push", f"https://{GITHUB_TOKEN}@github.com/fraetech/maj-hebdo"],
+        check=True
+    )
+    functions_anfr.log_message("Modifications poussées sur GitHub.", "INFO")
+    functions_anfr.send_sms("Poussé sur GitHub avec succès.")
+except subprocess.CalledProcessError as e:
+    functions_anfr.log_message(f"Erreur lors du git : {e}", "ERROR")
+    sys.exit(1)

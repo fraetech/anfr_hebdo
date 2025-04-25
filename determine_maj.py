@@ -9,7 +9,7 @@ import functions_anfr
 def run_script(script_name):
     """Exécute un script Python avec des arguments optionnels."""
     try:
-        result = subprocess.run([sys.executable, script_name], check=True)
+        result = subprocess.run([sys.executable, script_name, "hebdo"], check=True)
         return result.returncode
     except subprocess.CalledProcessError as e:
         functions_anfr.log_message(f"Le script {script_name} a échoué avec le code de retour {e.returncode}. Erreur: {e}", "ERROR")

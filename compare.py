@@ -199,12 +199,14 @@ def main(no_file_update, no_download, no_compare, no_write, debug):
             functions_anfr.log_message("MAJ ANFR vide, fin du programme", "FATAL")
             functions_anfr.send_sms("MAJ vide, annulé.")
             raise SystemExit(1)
-
+        
     else:
         functions_anfr.log_message("Ecriture des résultats sautée : demandé par argument", "WARN")
 
     with open(os.path.join(path_app, 'files', 'compared', 'timestamp.txt'), 'w') as f:
-              f.write(str(timestamp))
+              f.write(str(timestamp) + "\n")
+              f.write(str(old_csv_path) + "\n")
+              f.write(str(current_csv_path))
               f.close()
 
     # Temps d'exécution
