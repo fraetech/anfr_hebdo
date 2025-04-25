@@ -7,13 +7,32 @@ import re
 import functions_anfr
 import numpy as np
 from collections import defaultdict
+from datetime import datetime
 
 ZB_TECHNOS = {"LTE 700", "LTE 800", "UMTS 900"}
 fc_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "files", "compared", "timestamp.txt")
-with open(fc_file, "r") as f:
+with open(fc_file, "r", encoding="utf-8") as f:
     lines = f.readlines()
+    TIMESTAMP = lines[0].strip()
     OLD_CSV_PATH = lines[1].strip()
     NEW_CSV_PATH = lines[2].strip()
+
+def get_period_code(timestamp_str: str, type: str) -> str:
+    dt = datetime.strptime(timestamp_str, "%d/%m/%Y à %H:%M:%S")
+    
+    if type == "hebdo":
+        iso_year, iso_week, _ = dt.isocalendar()
+        return f"S{iso_week:02d}_{iso_year}"
+    
+    elif type == "mensu":
+        return f"{dt.month:02d}_{dt.year}"
+    
+    elif type == "trim":
+        trimestre = (dt.month - 1) // 3 + 1
+        return f"T{trimestre}_{dt.year}"
+    
+    else:
+        raise ValueError("Type non reconnu. Utiliser 'hebdo', 'mensu' ou 'trim'.")
 
 def load_insee_data(filepath, encoding='utf-8'):
     """Charge les données issues du fichier de concordance entre code postal, nom de ville et code INSEE."""
@@ -482,6 +501,8 @@ def merge_and_process(added_path, modified_path, removed_path, output_path, inse
 
         final_df["is_new"] = final_df.apply(compute_is_new, axis=1)
 
+        time_period = get_period_code(TIMESTAMP, args.update_type)
+
         # On vire la colonne qui fait doublon de "technologie"
         final_df = final_df.drop('technologie_set', axis=1)
 
@@ -495,6 +516,8 @@ def merge_and_process(added_path, modified_path, removed_path, output_path, inse
         free_df.to_csv(os.path.join(output_path, 'free.csv'), index=False)
         orange_df.to_csv(os.path.join(output_path, 'orange.csv'), index=False)
         sfr_df.to_csv(os.path.join(output_path, 'sfr.csv'), index=False)
+        
+        final_df.to_csv(os.path.join(output_path, f"{time_period}.csv"), index=False)
 
         functions_anfr.log_message(f"Fichiers finaux générés avec succès, duplications supprimées.")
     except Exception as e:
@@ -526,7 +549,8 @@ def main(no_insee, no_process, debug):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Control which functions to skip.")
 
-    # Ajouter des arguments pour sauter des étapes
+    # Ajouter des arguments pour sauter des étapes et autres
+    parser.add_argument('update_type', choices=["hebdo", "mensu", "trim"])
     parser.add_argument('--no-insee', action='store_true', help="Ne pas charger les données INSEE, ne pas modifier les adresses.")
     parser.add_argument('--no-process', action='store_true', help="Ne pas effectuer le traitement des données.")
     parser.add_argument('--debug', action='store_true', help="Afficher les messages de debug.")

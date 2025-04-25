@@ -23,11 +23,13 @@ def main(args):
     path_app = os.path.dirname(os.path.abspath(__file__))
     path_compare = os.path.join(path_app, 'compare.py')
     path_pretrait = os.path.join(path_app, 'pretrait.py')
+    path_historique = os.path.join(path_app, 'historique.py')
     path_github = os.path.join(path_app, 'github.py')
 
     if not args.skip_compare:
         functions_anfr.log_message("Exécution de la comparaison des données avec compare.py")
         compare_args = []
+        compare_args.append(args.update_type)
         if args.no_file_update:
             compare_args.append('--no-file-update')
         if args.no_download:
@@ -44,6 +46,7 @@ def main(args):
     if not args.skip_pretrait:
         functions_anfr.log_message("Exécution du prétraitement des données avec pretrait.py")
         pretrait_args = []
+        pretrait_args.append(args.update_type)
         if args.no_insee:
             pretrait_args.append('--no-insee')
         if args.no_process:
@@ -52,6 +55,15 @@ def main(args):
             pretrait_args.append('--debug')
 
         run_script(path_pretrait, *pretrait_args)
+    
+    if not args.skip_histo:
+        functions_anfr.log_message("Exécution de la MAJ de l'historique avec historique.py")
+        historique_args = []
+        historique_args.append(args.update_type)
+        if args.debug:
+            historique_args.append('--debug')
+        
+        run_script(path_historique, *historique_args)
 
     if not args.skip_github:
         functions_anfr.log_message("Push vers GitHub avec github.py")
@@ -72,6 +84,7 @@ if __name__ == "__main__":
     # Ajouter des arguments pour skipper certains scripts
     parser.add_argument('--skip-compare', action='store_true', help="Ne pas exécuter le script compare.py.")
     parser.add_argument('--skip-pretrait', action='store_true', help="Ne pas exécuter le script pretrait.py.")
+    parser.add_argument('--skip-histo', action='store_true', help="Ne pas exécuter le script historique.py")
     parser.add_argument('--skip-github', action='store_true', help="Ne pas exécuter le script github.py")
     
     # Ajouter les arguments propres à compare.py
