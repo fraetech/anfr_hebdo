@@ -35,15 +35,15 @@ def build_label_and_path(period_code: str, dt: datetime, type_: str):
     if type_ == "hebdo":
         iso_year, iso_week, _ = dt.isocalendar()
         label = f"Semaine {iso_week} - {iso_year}"
-        path = f"hebdo/{period_code}.csv"
+        path = f"hebdo/{period_code}"
     elif type_ == "mensu":
         mois_nom = dt.strftime("%B").capitalize()
         label = f"{mois_nom} - {dt.year}"
-        path = f"mensu/{period_code[:2]}_{str(dt.year)[2:]}.csv"
+        path = f"mensu/{period_code[:2]}_{str(dt.year)[2:]}"
     elif type_ == "trim":
         trimestre = (dt.month - 1) // 3 + 1
         label = f"Trimestre {trimestre} - {dt.year}"
-        path = f"trim/{period_code}.csv"
+        path = f"trim/{period_code}"
     else:
         raise ValueError("Type non reconnu.")
     
@@ -89,6 +89,9 @@ def main(args):
 
         for period_type in ["mensu", "trim"]:
             period_code = get_period_code(TIMESTAMP, period_type)
+            with open(os.path.join(path_app, "files", "pretraite", f"{period_code}.txt"), "w", encoding="utf-8") as f:
+                f.write(str(TIMESTAMP))
+                f.close()
             output_filename = f"{period_code}.csv"
             full_path = target_dir / output_filename
 
