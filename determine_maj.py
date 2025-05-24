@@ -35,7 +35,7 @@ def check_and_execute(url, local_csv_dir, script_to_execute, timeout=300):
         local_csv_path = os.path.join(local_csv_dir, filename)
 
         # Définir le pattern à respecter
-        pattern = r'^\d{14}_observatoire(_2g)?(_3g)?(_4g)?(_5g)?\.csv$'
+        pattern = r'^\d{14}_observatoire(?:od)?(_2g)?(_3g)?(_4g)?(_5g)?(?:_\d{8})?\.csv$'
 
         # Vérifier si le nom du fichier respecte le pattern
         if not re.match(pattern, filename):

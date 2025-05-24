@@ -64,10 +64,56 @@ def csv_files_update(path_new_csv, update_type):
         expected_filename = get_previous_period_filename(update_type)
         #expected_filename = "02_2025.csv"
         #expected_filename = "T1_2025.csv"
+        
+        # Trouver le fichier de la période précédente
         for fichier in os.listdir(dir_path):
             if fichier == expected_filename:
                 old_csv_path = os.path.join(dir_path, fichier)
                 break
+        
+        # Supprimer les fichiers antérieurs à la période précédente
+        def is_older_file(filename, reference_filename):
+            # Gestion des fichiers mensuels (format: MM_YYYY.csv)
+            if reference_filename[0].isdigit() and "_" in reference_filename:
+                ref_month = int(reference_filename.split("_")[0])
+                ref_year = int(reference_filename.split("_")[1].split(".")[0])
+                
+                # Vérifier si le fichier est au format mensuel
+                if filename[0].isdigit() and "_" in filename:
+                    try:
+                        month = int(filename.split("_")[0])
+                        year = int(filename.split("_")[1].split(".")[0])
+                        # Le fichier est plus ancien si l'année est plus petite ou si même année mais mois plus petit
+                        return (year < ref_year) or (year == ref_year and month < ref_month)
+                    except (ValueError, IndexError):
+                        return False
+            
+            # Gestion des fichiers trimestriels (format: TX_YYYY.csv)
+            elif reference_filename.startswith("T") and "_" in reference_filename:
+                ref_quarter = int(reference_filename[1:2])
+                ref_year = int(reference_filename.split("_")[1].split(".")[0])
+                
+                # Vérifier si le fichier est au format trimestriel
+                if filename.startswith("T") and "_" in filename:
+                    try:
+                        quarter = int(filename[1:2])
+                        year = int(filename.split("_")[1].split(".")[0])
+                        # Le fichier est plus ancien si l'année est plus petite ou si même année mais trimestre plus petit
+                        return (year < ref_year) or (year == ref_year and quarter < ref_quarter)
+                    except (ValueError, IndexError):
+                        return False
+            
+            return False
+        
+        # Supprimer tous les fichiers plus anciens
+        for fichier in os.listdir(dir_path):
+            if fichier.endswith(".csv") and is_older_file(fichier, expected_filename):
+                file_to_delete = os.path.join(dir_path, fichier)
+                try:
+                    os.remove(file_to_delete)
+                    print(f"Fichier supprimé : {fichier}")
+                except Exception as e:
+                    print(f"Erreur lors de la suppression de {fichier}: {e}")
 
     if old_csv_path is None:
         raise FileNotFoundError("Aucun fichier de référence trouvé pour le type de mise à jour spécifié.")
@@ -88,7 +134,7 @@ def rename_old_file(old_path, new_path):
 
 def load_and_process_csv(file_path):
     try:
-        df = pd.read_csv(file_path, sep=";")
+        df = pd.read_csv(file_path, sep=",")
         df = df[['adm_lb_nom', 'sup_id', 'emr_lb_systeme', 'nat_id', 'sup_nm_haut', 'tpo_id', 'adr_lb_lieu', 'adr_lb_add1', 'adr_lb_add2', 'adr_lb_add3', 'com_cd_insee', 'coordonnees', 'statut']]
         df = df.rename(columns={
             'adm_lb_nom': 'operateur',
@@ -136,7 +182,7 @@ def compare_data(df_old, df_current):
 
 def write_results(df, file_path, message):
     try:
-        df.to_csv(file_path, index=False)
+        df.to_csv(file_path, index=False, sep=";")
         nb_rows = len(df)
         functions_anfr.log_message(f"{message} il y a {nb_rows} lignes.")
         return f"{message} il y a {nb_rows} lignes. "
@@ -156,7 +202,7 @@ def main(no_file_update, no_download, no_compare, no_write, debug, update_type):
         functions_anfr.log_message("Téléchargement terminé")
     else:
         functions_anfr.log_message("Téléchargement sauté : demandé par argument", "WARN")
-        curr_csv_path = r"C:\Users\djvin\Documents\GitHub\anfr_hebdo\files\from_anfr\20250423121419_observatoire_2g_3g_4g.csv"
+        curr_csv_path = r"C:\Users\djvin\Documents\GitHub\anfr_hebdo\files\from_anfr\20250522182055.csv"
 
     if not no_file_update:
         old_csv_path, current_csv_path, timestamp = csv_files_update(curr_csv_path, update_type)
@@ -206,11 +252,14 @@ def main(no_file_update, no_download, no_compare, no_write, debug, update_type):
     else:
         functions_anfr.log_message("Ecriture des résultats sautée : demandé par argument", "WARN")
 
-    with open(os.path.join(path_app, 'files', 'compared', 'timestamp.txt'), 'w', encoding="utf-8") as f:
-        f.write(str(timestamp) + "\n")
-        f.write(str(old_csv_path) + "\n")
-        f.write(str(current_csv_path))
-        f.close()
+    with open(os.path.join(path_app, 'files', 'compared', 'timestamp.txt'), 'w', encoding="utf-8") as f1:
+        f1.write(str(timestamp) + "\n")
+        f1.write(str(old_csv_path) + "\n")
+        f1.write(str(current_csv_path))
+        f1.close()
+    with open(os.path.join(path_app, 'files', 'pretraite', 'timestamp.txt'), 'w', encoding="utf-8") as f2:
+        f2.write(str(timestamp))
+        f2.close()
 
     end_time = time.time()
     duration = end_time - start_time

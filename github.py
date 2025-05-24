@@ -62,6 +62,21 @@ def git_push(repo_dir: Path, dest_dir: Path, timestamp: str, update_type: str, g
         functions_anfr.log_message(f"Erreur lors du git : {e}", "ERROR")
         sys.exit(1)
 
+def clean(path_app : Path):
+    pretraite_path = path_app / "files" / "pretraite"
+    for filename in os.listdir(pretraite_path):
+        file_path = os.path.join(pretraite_path, filename)
+        if os.path.isfile(file_path):
+            os.remove(file_path)
+            functions_anfr.log_message(f"Fichier supprimé : {filename}", "INFO")
+    compared_path = path_app / "files" / "compared"
+    
+    for filename in os.listdir(compared_path):
+        file_path = os.path.join(compared_path, filename)
+        if os.path.isfile(file_path):
+            os.remove(file_path)
+            functions_anfr.log_message(f"Fichier supprimé : {filename}", "INFO")
+
 def main(args):
     # Charger les variables d'environnement
     load_dotenv()
@@ -79,6 +94,9 @@ def main(args):
 
     # Git push
     git_push(repo_dir, dest_dir, timestamp, args.update_type, github_token)
+
+    # Clean de pretraite
+    clean(path_app)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Publier les fichiers ANFR vers le dépôt GitHub.")

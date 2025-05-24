@@ -10,6 +10,7 @@ from collections import defaultdict
 from datetime import datetime
 
 ZB_TECHNOS = {"LTE 700", "LTE 800", "UMTS 900"}
+ZB_OPERATEURS = {"BOUYGUES TELECOM", "FREE MOBILE", "SFR", "ORANGE"}
 fc_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "files", "compared", "timestamp.txt")
 with open(fc_file, "r", encoding="utf-8") as f:
     lines = f.readlines()
@@ -229,6 +230,8 @@ techs_new_map = extract_tech_dict(df_new)
 techs_old_map = extract_tech_dict(df_old)
 
 def is_zb(support_id, operateur):
+    if operateur not in ZB_OPERATEURS:
+        return False
     """Détermine si, pour un sup_id et un opé donné, une antenne est une 'Zone Blanche' ou non."""
     key = (str(support_id).strip(), operateur)
     techs_new = techs_new_map.get(key, set())
