@@ -22,7 +22,7 @@ def timeout_handler(signum, frame):
     """Gestionnaire de signal pour arrêter l'exécution en cas de dépassement du délai."""
     raise TimeoutError("Le temps d'exécution alloué a été dépassé.")
 
-def check_and_execute(url, local_csv_dir, script_to_execute, timeout=300):
+def check_and_execute(url, path_app, script_to_execute, timeout=300):
     """Vérifie la présence du fichier localement et exécute le script core.py si le fichier n'est pas présent,
        avec un délai maximal d'exécution."""
     try:
@@ -32,7 +32,7 @@ def check_and_execute(url, local_csv_dir, script_to_execute, timeout=300):
 
         # Récupérer le nom du fichier sur le serveur
         filename = functions_anfr.get_filename_from_server(url)
-        local_csv_path = os.path.join(local_csv_dir, filename)
+        local_csv_path = os.path.join(path_app, 'files', 'from_anfr', filename)
 
         # Définir le pattern à respecter
         pattern = r'^\d{14}_observatoire(?:od)?(_2g)?(_3g)?(_4g)?(_5g)?(?:_\d{8})?\.csv$'
@@ -41,6 +41,14 @@ def check_and_execute(url, local_csv_dir, script_to_execute, timeout=300):
         if not re.match(pattern, filename):
             functions_anfr.log_message(f"Le nom de fichier '{filename}' ne respecte pas le pattern requis.", "ERROR")
             return  # Sortir de la fonction sans exécuter le script
+        
+        ignores_path = os.path.join(path_app, 'files', 'ignores.txt')
+        if os.path.exists(ignores_path):
+            with open(ignores_path, "r", encoding="utf-8") as f:
+                ignored_files = set(line.strip() for line in f if line.strip())
+            if filename in ignored_files:
+                functions_anfr.log_message(f"{filename} est listé dans ignores.txt, exécution annulée.", "WARN")
+                return
 
         # Vérifier si le fichier est déjà présent localement
         if os.path.exists(local_csv_path):
@@ -55,12 +63,16 @@ def check_and_execute(url, local_csv_dir, script_to_execute, timeout=300):
 
         signal.alarm(0)  # Annuler l'alarme si tout s'est bien passé
     except TimeoutError:
-        functions_anfr.log_message("Le temps d'exécution maximum a été dépassé.", "CRITICAL")
+        functions_anfr.log_message("Le temps d'exécution maximum a été dépassé.", "FATAL")
         functions_anfr.send_sms("Erreur : Temps d'exécution dépassé.")
         sys.exit(1)
     except Exception as e:
-        functions_anfr.log_message(f"Une erreur s'est produite : {e}", "CRITICAL")
-        functions_anfr.send_sms(f"Erreur : {e}")
+        msg = str(e)
+        functions_anfr.log_message(f"Une erreur s'est produite : {msg}", "FATAL")
+        if any(code in msg for code in ("443", "500", "Read timed out", "Service unavailable", "HTTPSConnectionPool")):
+            functions_anfr.log_message("Erreur de connexion au serveur ANFR détectée. SMS non envoyé.", "WARN")
+        else:
+            functions_anfr.send_sms(f"Erreur : {msg}")
         sys.exit(1)
 
 def main():
@@ -68,11 +80,10 @@ def main():
     # Paramètres du programme
     url = "https://data.anfr.fr/d4c/api/records/2.0/downloadfile/format=csv&resource_id=88ef0887-6b0f-4d3f-8545-6d64c8f597da&use_labels_for_header=true"
     path_app = os.path.dirname(os.path.abspath(__file__))
-    local_csv_folder = os.path.join(path_app, 'files', 'from_anfr')
     script_to_execute = os.path.join(path_app, 'core.py')
 
     # Vérification et exécution
-    check_and_execute(url, local_csv_folder, script_to_execute)
+    check_and_execute(url, path_app, script_to_execute)
 
 if __name__ == "__main__":
     main()

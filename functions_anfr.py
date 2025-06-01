@@ -14,9 +14,9 @@ def log_message(message, level="INFO"):
     timestamp = datetime.now().strftime("%d/%m/%Y à %H:%M:%S")
     print(f"{timestamp} [{level}] -> {message}")
 
-def send_sms(message):
+def send_sms(message, level="INFO"):
     """Exécute le scrpt sms.py avec le message en argument."""
-    subprocess.run([sys.executable, send_sms_path, message])
+    subprocess.run([sys.executable, send_sms_path, f"MAJ_ANFR - {level} - {message}"])
 
 def get_filename_from_server(url):
     """Récupère le nom du fichier depuis l'URL du serveur."""

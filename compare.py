@@ -111,14 +111,14 @@ def csv_files_update(path_new_csv, update_type):
                 file_to_delete = os.path.join(dir_path, fichier)
                 try:
                     os.remove(file_to_delete)
-                    print(f"Fichier supprimé : {fichier}")
+                    functions_anfr.log_message(f"Fichier supprimé : {fichier}")
                 except Exception as e:
-                    print(f"Erreur lors de la suppression de {fichier}: {e}")
+                    functions_anfr.log_message(f"Erreur lors de la suppression de {fichier}: {e}", "ERROR")
 
     if old_csv_path is None:
         raise FileNotFoundError("Aucun fichier de référence trouvé pour le type de mise à jour spécifié.")
 
-    functions_anfr.send_sms(f"MAJ_ANFR: Comparaison lancée entre : {datetime.strptime(os.path.basename(path_new_csv)[:14], '%Y%m%d%H%M%S').strftime('%Y-%m-%d %H:%M:%S')} et : {os.path.basename(old_csv_path)}. TBC.")
+    functions_anfr.send_sms(f"Comparaison lancée entre : {datetime.strptime(os.path.basename(path_new_csv)[:14], '%Y%m%d%H%M%S').strftime('%Y-%m-%d %H:%M:%S')} et : {datetime.strptime(os.path.basename(old_csv_path)[:14], '%Y%m%d%H%M%S').strftime('%Y-%m-%d %H:%M:%S')}")
     selected_timestamp = datetime.strptime(os.path.basename(path_new_csv)[:14], '%Y%m%d%H%M%S').strftime('%d/%m/%Y à %H:%M:%S')
     return old_csv_path, path_new_csv, selected_timestamp
 
@@ -182,10 +182,10 @@ def compare_data(df_old, df_current):
 
 def write_results(df, file_path, message):
     try:
-        df.to_csv(file_path, index=False, sep=";")
+        df.to_csv(file_path, index=False, sep=",")
         nb_rows = len(df)
-        functions_anfr.log_message(f"{message} il y a {nb_rows} lignes.")
-        return f"{message} il y a {nb_rows} lignes. "
+        functions_anfr.log_message(f"{message}{nb_rows}.")
+        return f"{message}{nb_rows}."
     except IOError as e:
         functions_anfr.log_message(f"Impossible d'écrire dans le fichier '{file_path}' - {e}", "ERROR")
 
@@ -230,7 +230,7 @@ def main(no_file_update, no_download, no_compare, no_write, debug, update_type):
 
     if not no_write:
         functions_anfr.log_message("Début écriture des résultats")
-        string_sms = "Done. "
+        string_sms = ""
         if df_removed is not None:
             if debug:
                 functions_anfr.log_message("Début écriture résultats df_removed", "DEBUG")
@@ -244,11 +244,28 @@ def main(no_file_update, no_download, no_compare, no_write, debug, update_type):
                 functions_anfr.log_message("Début écriture résultats df_added", "DEBUG")
             string_sms += write_results(df_added, os.path.join(path_app, 'files', 'compared', 'comp_added.csv'), "Nouvelles lignes : ")
         functions_anfr.log_message("Ecriture des résultats terminée")
-        functions_anfr.send_sms(string_sms)
-        if all(x is None for x in (df_removed, df_modified, df_added)):
+        if any(x.empty for x in (df_removed, df_modified, df_added)):
             functions_anfr.log_message("MAJ ANFR vide, fin du programme", "FATAL")
-            functions_anfr.send_sms("MAJ vide, annulé.")
+
+            # Ajouter le nom du fichier courant à ignores.txt
+            with open(os.path.join(path_app, 'files', 'ignores.txt'), "a", encoding="utf-8") as f:
+                f.write(os.path.basename(curr_csv_path) + "\n")
+
+            # Envoyer les SMS
+            functions_anfr.send_sms(string_sms, "INFO")
+            functions_anfr.send_sms("MAJ vide... (sûr au moins 1 df)", "FATAL")
+
+            # Supprimer le fichier de la MAJ vide
+            try:
+                os.remove(curr_csv_path)
+                functions_anfr.log_message(f"Fichier supprimé : {curr_csv_path}", "INFO")
+            except Exception as e:
+                functions_anfr.log_message(f"Erreur lors de la suppression du fichier : {e}", "ERROR")
+
             raise SystemExit(1)
+        else:
+            functions_anfr.send_sms(string_sms, "INFO")
+
     else:
         functions_anfr.log_message("Ecriture des résultats sautée : demandé par argument", "WARN")
 

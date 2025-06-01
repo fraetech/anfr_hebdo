@@ -40,7 +40,7 @@ def build_label_and_path(period_code: str, dt: datetime, type_: str):
     elif type_ == "mensu":
         mois_nom = dt.strftime("%B").capitalize()
         label = f"{mois_nom} - {dt.year}"
-        path = f"mensu/{period_code[:2]}_{str(dt.year)[2:]}"
+        path = f"mensu/{period_code[:2]}_{dt.year}"
     elif type_ == "trim":
         trimestre = (dt.month - 1) // 3 + 1
         label = f"Trimestre {trimestre} - {dt.year}"
@@ -77,7 +77,7 @@ def update_history_csv(type_: str, timestamp_str: str):
         if os.stat(history_path).st_size == 0:  # Fichier vide
             writer.writeheader()
         writer.writerow({"type": type_, "label": label, "path": path})
-        functions_anfr.log_message(f"Ajouté : {type_},{label},{path}", "INFO")
+        functions_anfr.log_message(f"Ajouté : {type_},{label},{path}")
 
 def main(args):
     update_history_csv(args.update_type, TIMESTAMP)

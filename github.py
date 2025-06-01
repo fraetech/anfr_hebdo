@@ -18,8 +18,8 @@ def get_period_code(timestamp_str: str, type: str) -> str:
     dt = datetime.datetime.strptime(timestamp_str, "%d/%m/%Y à %H:%M:%S")
 
     if type == "hebdo":
-        iso_year, iso_week, _ = dt.isocalendar()
-        return f"S{iso_week:02d}_{iso_year}"
+        iso_week, _ = dt.isocalendar()
+        return f"S{iso_week:02d}_{dt.year}"
     elif type == "mensu":
         return f"{dt.month:02d}_{dt.year}"
     elif type == "trim":
@@ -32,7 +32,10 @@ def copy_files(update_type: str, path_app: Path, period_code: str):
     source_dir = path_app / "files" / "pretraite"
     repo_dir = path_app.parent / "maj-hebdo"
     dest_dir = repo_dir / "files" / update_type
-    files = ["index.csv", "bouygues.csv", "free.csv", "orange.csv", "sfr.csv", f"{period_code}.csv", "timestamp.txt", f"{period_code}.txt"]
+    if update_type == "hebdo":
+        files = ["index.csv", "bouygues.csv", "free.csv", "orange.csv", "sfr.csv", f"{period_code}.csv", "timestamp.txt", f"{period_code}.txt"]
+    else:
+        files = [f"{period_code}.csv", f"{period_code}.txt"]
 
     dest_dir.mkdir(parents=True, exist_ok=True)
 

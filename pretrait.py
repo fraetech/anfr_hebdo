@@ -210,8 +210,8 @@ def find_and_isolate_duplicates(df: pd.DataFrame, location_threshold=0.001, addr
     return df[is_duplicate]  # Return the filtered DataFrame
 
 try:
-    df_old = pd.read_csv(OLD_CSV_PATH, sep=";", on_bad_lines="skip", dtype=str)
-    df_new = pd.read_csv(NEW_CSV_PATH, sep=";", on_bad_lines="skip", dtype=str)
+    df_old = pd.read_csv(OLD_CSV_PATH, sep=",", on_bad_lines="skip", dtype=str)
+    df_new = pd.read_csv(NEW_CSV_PATH, sep=",", on_bad_lines="skip", dtype=str)
 except Exception as e:
     functions_anfr.log_message(f"Erreur lors de la lecture du CSV : {e}", "ERROR")
     raise
