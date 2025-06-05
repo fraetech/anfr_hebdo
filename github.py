@@ -18,8 +18,8 @@ def get_period_code(timestamp_str: str, type: str) -> str:
     dt = datetime.datetime.strptime(timestamp_str, "%d/%m/%Y à %H:%M:%S")
 
     if type == "hebdo":
-        iso_week, _ = dt.isocalendar()
-        return f"S{iso_week:02d}_{dt.year}"
+        iso_year, iso_week, _ = dt.isocalendar()
+        return f"S{iso_week:02d}_{iso_year}"
     elif type == "mensu":
         return f"{dt.month:02d}_{dt.year}"
     elif type == "trim":
