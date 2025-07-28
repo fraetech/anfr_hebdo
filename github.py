@@ -55,10 +55,7 @@ def git_push(repo_dir: Path, dest_dir: Path, timestamp: str, update_type: str, g
         history_file = repo_dir / "files" / "history.csv"
         subprocess.run(["git", "-C", str(repo_dir), "add", str(dest_dir), str(history_file)], check=True)
         subprocess.run(["git", "-C", str(repo_dir), "commit", "-m", f"Mise à jour {update_type} du {timestamp}"], check=True)
-        subprocess.run([
-            "git", "-C", str(repo_dir), "push",
-            f"https://{github_token}@github.com/fraetech/maj-hebdo"
-        ], check=True)
+        subprocess.run(["git", "-C", str(repo_dir), "push", "-f"], check=True)
         functions_anfr.log_message("Modifications poussées sur GitHub.", "INFO")
         functions_anfr.send_sms("Poussé sur GitHub avec succès.")
     except subprocess.CalledProcessError as e:
@@ -73,7 +70,7 @@ def clean(path_app : Path):
             os.remove(file_path)
             functions_anfr.log_message(f"Fichier supprimé : {filename}", "INFO")
     compared_path = path_app / "files" / "compared"
-    
+
     for filename in os.listdir(compared_path):
         file_path = os.path.join(compared_path, filename)
         if os.path.isfile(file_path):

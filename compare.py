@@ -189,33 +189,44 @@ def write_results(df, file_path, message):
     except IOError as e:
         functions_anfr.log_message(f"Impossible d'écrire dans le fichier '{file_path}' - {e}", "ERROR")
 
-def main(no_file_update, no_download, no_compare, no_write, debug, update_type):
+def main(no_file_update, no_download, no_compare, no_write, old_csv_name, new_csv_name, timestamp_a, debug, update_type):
     path_app = os.path.dirname(os.path.abspath(__file__))
     download_path = os.path.join(path_app, 'files', 'from_anfr')
     url = "https://data.anfr.fr/d4c/api/records/2.0/downloadfile/format=csv&resource_id=88ef0887-6b0f-4d3f-8545-6d64c8f597da&use_labels_for_header=true"
 
-    if not no_download:
+    if not no_download and not new_csv_name:
         filename_from_anfr = functions_anfr.get_filename_from_server(url)
         download_path_r = os.path.join(download_path, filename_from_anfr)
         functions_anfr.log_message("Début du téléchargement du fichier de data.anfr.fr")
         curr_csv_path = download_data(url, download_path_r)
         functions_anfr.log_message("Téléchargement terminé")
     else:
-        functions_anfr.log_message("Téléchargement sauté : demandé par argument", "WARN")
-        curr_csv_path = r"C:\Users\djvin\Documents\GitHub\anfr_hebdo\files\from_anfr\20250522182055.csv"
+        if no_download:
+            functions_anfr.log_message("Téléchargement sauté : demandé par argument", "WARN")
+            curr_csv_path = r"PATHPATHPATH"
+        else:
+            curr_csv_path = os.path.join(download_path, new_csv_name)
+            functions_anfr.log_message(f"Vous forcez la MAJ avec le current_csv : {curr_csv_path}", "INFO")
 
-    if not no_file_update:
+    if not no_file_update and not old_csv_name:
         old_csv_path, current_csv_path, timestamp = csv_files_update(curr_csv_path, update_type)
         functions_anfr.log_message(f"Comparaison entre {old_csv_path} et {current_csv_path}")
     else:
-        functions_anfr.log_message(f"Mise à jour des fichiers CSV sautée : demandé par argument", "WARN")
-        timestamp = ""
-        current_csv_path = curr_csv_path
-
+        if no_file_update:
+            current_csv_path = curr_csv_path
+            timestamp = "15/12/2020 à 13:37:37"
+            functions_anfr.log_message(f"Mise à jour des fichiers CSV sautée : vous n'irez pas loin ainsi...", "ERROR")
+        else:
+            current_csv_path = curr_csv_path
+            old_csv_path = os.path.join(download_path, old_csv_name)
+            timestamp = str(timestamp_a).strip('\"')
+            functions_anfr.log_message(f"Vous forcez la MAJ avec le old_csv : {old_csv_path}", "INFO")
+            functions_anfr.log_message(f"Vous forcez la MAJ avec le timestamp : {timestamp}", "INFO")
+            
     start_time = time.time()
 
     if not no_compare:
-        functions_anfr.log_message("Début de la comparaison")
+        functions_anfr.log_message(f"Début de la comparaison entre {old_csv_path} & {current_csv_path}")
         df_old = load_and_process_csv(old_csv_path)
         if debug:
             functions_anfr.log_message("Ancien CSV chargé", "DEBUG")
@@ -288,6 +299,9 @@ if __name__ == "__main__":
     parser.add_argument('--no-download', action='store_true')
     parser.add_argument('--no-compare', action='store_true')
     parser.add_argument('--no-write', action='store_true')
+    parser.add_argument('--old-csv-name', type=str, help="Nom de l'ancien fichier CSV avec lequel faire la MAJ")
+    parser.add_argument('--new-csv-name', type=str, help="Nom du nouveau fichier CSV avec lequel faire la MAJ, préciser --timestamp SVP")
+    parser.add_argument('--timestamp', type=str, help="Timestamp à donner à la MAJ")
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('update_type', choices=["hebdo", "mensu", "trim"])
     args = parser.parse_args()
@@ -297,6 +311,9 @@ if __name__ == "__main__":
         no_download=args.no_download,
         no_compare=args.no_compare,
         no_write=args.no_write,
+        old_csv_name=args.old_csv_name,
+        new_csv_name=args.new_csv_name,
+        timestamp_a=args.timestamp,
         debug=args.debug,
         update_type=args.update_type
     )

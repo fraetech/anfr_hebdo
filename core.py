@@ -3,6 +3,7 @@ import argparse
 import subprocess
 import sys
 import os
+from pathlib import Path
 import functions_anfr
 
 def run_script(script_name, *args):
@@ -20,11 +21,17 @@ def run_script(script_name, *args):
 def main(args):
     """Fonction principale pour orchestrer l'exécution des différents scripts."""
     # Spécifie les chemins des fichiers
-    path_app = os.path.dirname(os.path.abspath(__file__))
+    path_app = Path(__file__).resolve().parent
+    repo_dir = path_app.parent / "maj-hebdo"
     path_compare = os.path.join(path_app, 'compare.py')
     path_pretrait = os.path.join(path_app, 'pretrait.py')
     path_historique = os.path.join(path_app, 'historique.py')
     path_github = os.path.join(path_app, 'github.py')
+
+    
+    subprocess.run(['git', '-C', str(repo_dir), 'reset', '--hard'], check=True)
+    subprocess.run(['git', '-C', str(repo_dir), 'clean', '-fd'], check=True)
+    subprocess.run(['git', '-C', str(repo_dir), 'pull', '--rebase'], check=True)
 
     if not args.skip_compare:
         functions_anfr.log_message("Exécution de la comparaison des données avec compare.py")
@@ -38,6 +45,12 @@ def main(args):
             compare_args.append('--no-compare')
         if args.no_write:
             compare_args.append('--no-write')
+        if args.old_csv_name:
+            compare_args.append(f'--old-csv-name={args.old_csv_name}')
+        if args.new_csv_name:
+            compare_args.append(f'--new-csv-name={args.new_csv_name}')
+        if args.timestamp:
+            compare_args.append(f'--timestamp={args.timestamp}')
         if args.debug:
             compare_args.append('--debug')
 
@@ -92,6 +105,9 @@ if __name__ == "__main__":
     parser.add_argument('--no-download', action='store_true', help="Ne pas télécharger les nouvelles données dans compare.py.")
     parser.add_argument('--no-compare', action='store_true', help="Ne pas comparer les données dans compare.py.")
     parser.add_argument('--no-write', action='store_true', help="Ne pas écrire les résultats dans compare.py.")
+    parser.add_argument('--old-csv-name', type=str, help="Nom de l'ancien fichier CSV avec lequel faire la MAJ")
+    parser.add_argument('--new-csv-name', type=str, help="Nom du nouveau fichier CSV avec lequel faire la MAJ, préciser --timestamp SVP")
+    parser.add_argument('--timestamp', type=str, help="Timestamp à donner à la MAJ")
 
     # Ajouter les arguments propres à pretrait.py
     parser.add_argument('--no-insee', action='store_true', help="Ne pas charger les données INSEE dans pretrait.py.")
