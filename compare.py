@@ -118,7 +118,10 @@ def csv_files_update(path_new_csv, update_type):
     if old_csv_path is None:
         raise FileNotFoundError("Aucun fichier de référence trouvé pour le type de mise à jour spécifié.")
 
-    functions_anfr.send_sms(f"Comparaison lancée entre : {datetime.strptime(os.path.basename(path_new_csv)[:14], '%Y%m%d%H%M%S').strftime('%Y-%m-%d %H:%M:%S')} et : {datetime.strptime(os.path.basename(old_csv_path)[:14], '%Y%m%d%H%M%S').strftime('%Y-%m-%d %H:%M:%S')}")
+    if update_type == "hebdo":
+        functions_anfr.send_sms(f"Comparaison lancée entre : {datetime.strptime(os.path.basename(path_new_csv)[:14], '%Y%m%d%H%M%S').strftime('%Y-%m-%d %H:%M:%S')} et : {datetime.strptime(os.path.basename(old_csv_path)[:14], '%Y%m%d%H%M%S').strftime('%Y-%m-%d %H:%M:%S')}.")
+    else:
+        functions_anfr.send_sms(f"Comparaison lancée entre : {datetime.strptime(os.path.basename(path_new_csv)[:14], '%Y%m%d%H%M%S').strftime('%Y-%m-%d %H:%M:%S')} et : {os.path.basename(old_csv_path)}.")
     selected_timestamp = datetime.strptime(os.path.basename(path_new_csv)[:14], '%Y%m%d%H%M%S').strftime('%d/%m/%Y à %H:%M:%S')
     return old_csv_path, path_new_csv, selected_timestamp
 
@@ -135,7 +138,7 @@ def rename_old_file(old_path, new_path):
 def load_and_process_csv(file_path):
     try:
         df = pd.read_csv(file_path, sep=",")
-        df = df[['adm_lb_nom', 'sup_id', 'emr_lb_systeme', 'nat_id', 'sup_nm_haut', 'tpo_id', 'adr_lb_lieu', 'adr_lb_add1', 'adr_lb_add2', 'adr_lb_add3', 'com_cd_insee', 'coordonnees', 'statut']]
+        df = df[['adm_lb_nom', 'sup_id', 'emr_lb_systeme', 'nat_id', 'sup_nm_haut', 'tpo_id', 'adr_lb_lieu', 'adr_lb_add1', 'adr_lb_add2', 'adr_lb_add3', 'com_cd_insee', 'coordonnees', 'statut', 'emr_dt']]
         df = df.rename(columns={
             'adm_lb_nom': 'operateur',
             'sup_id': 'id_support',
@@ -149,7 +152,8 @@ def load_and_process_csv(file_path):
             'adr_lb_add3': 'adresse3',
             'com_cd_insee': 'code_insee',
             'coordonnees': 'coordonnees',
-            'statut': 'statut'
+            'statut': 'statut',
+            'emr_dt': 'date_activ'
         })
         return df
     except FileNotFoundError:
@@ -164,14 +168,48 @@ def load_and_process_csv(file_path):
 
 def compare_data(df_old, df_current):
     try:
+        # Préparation des colonnes pour la comparaison
         df_old['statut_old'] = df_old['statut']
+        df_old['date_activ_old'] = df_old['date_activ']
+        
         df_current['statut_last'] = df_current['statut']
+        df_current['date_activ_last'] = df_current['date_activ']
+        
+        # Merge sur toutes les colonnes identifiantes (sans statut et date_activ)
         df_merged = pd.merge(df_old, df_current, on=['operateur', 'id_support', 'technologie', 'adresse0', 'adresse1', 'adresse2', 'adresse3', 'code_insee', 'coordonnees'], how='outer')
+        
+        # Lignes ajoutées (présentes seulement dans le nouveau CSV)
         df_added = df_merged[df_merged['statut_old'].isna()]
+        
+        # Lignes supprimées (présentes seulement dans l'ancien CSV)
         df_removed = df_merged[df_merged['statut_last'].isna()]
-        df_modified = df_merged[(df_merged['statut_old'] != df_merged['statut_last'])]
+        
+        def dates_significantly_different(old_date, new_date):
+            if pd.isna(old_date) != pd.isna(new_date):
+                return True
+            if pd.isna(old_date) and pd.isna(new_date):
+                return False
+            try:
+                return str(old_date).strip() != str(new_date).strip()
+            except:
+                return old_date != new_date
+        
+        # Condition pour les modifications de date_activ : uniquement si statut reste "Projet approuvé"
+        def date_activ_changed_for_projet_approuve(row):
+            return (row['statut_old'] == 'Projet approuvé' and 
+                    row['statut_last'] == 'Projet approuvé' and
+                    dates_significantly_different(row['date_activ_old'], row['date_activ_last']))
+        
+        # Lignes modifiées : soit le statut a changé, soit la date_activ a changé pour les "Projet approuvé"
+        df_modified = df_merged[
+            (df_merged['statut_old'] != df_merged['statut_last']) | 
+            df_merged.apply(date_activ_changed_for_projet_approuve, axis=1)
+        ]
+        
+        # Supprimer les lignes ajoutées et supprimées des modifications
         df_modified = df_modified.drop(df_removed.index)
         df_modified = df_modified.drop(df_added.index)
+        
         return df_added, df_removed, df_modified
     except KeyError as e:
         functions_anfr.log_message(f"Clé manquante lors de la comparaison des données - {e}", "ERROR")
@@ -249,11 +287,11 @@ def main(no_file_update, no_download, no_compare, no_write, old_csv_name, new_cs
         if df_modified is not None:
             if debug:
                 functions_anfr.log_message("Début écriture résultats df_modified", "DEBUG")
-            string_sms += write_results(df_modified, os.path.join(path_app, 'files', 'compared', 'comp_modified.csv'), "Lignes modifiées : ")
+            string_sms += " " + write_results(df_modified, os.path.join(path_app, 'files', 'compared', 'comp_modified.csv'), "Lignes modifiées : ")
         if df_added is not None:
             if debug:
                 functions_anfr.log_message("Début écriture résultats df_added", "DEBUG")
-            string_sms += write_results(df_added, os.path.join(path_app, 'files', 'compared', 'comp_added.csv'), "Nouvelles lignes : ")
+            string_sms += " " + write_results(df_added, os.path.join(path_app, 'files', 'compared', 'comp_added.csv'), "Nouvelles lignes : ")
         functions_anfr.log_message("Ecriture des résultats terminée")
         if any(x.empty for x in (df_removed, df_modified, df_added)):
             functions_anfr.log_message("MAJ ANFR vide, fin du programme", "FATAL")

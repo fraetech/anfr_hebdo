@@ -82,26 +82,25 @@ def update_history_csv(type_: str, timestamp_str: str):
 def main(args):
     update_history_csv(args.update_type, TIMESTAMP)
 
-    if args.update_type == "hebdo":
-        dt = datetime.strptime(TIMESTAMP, "%d/%m/%Y à %H:%M:%S")
-        path_app = Path(__file__).resolve().parent
-        target_dir = path_app / "files" / "from_anfr"
-        source_file = lines[2].strip()
+    dt = datetime.strptime(TIMESTAMP, "%d/%m/%Y à %H:%M:%S")
+    path_app = Path(__file__).resolve().parent
+    target_dir = path_app / "files" / "from_anfr"
+    source_file = lines[2].strip()
 
-        for period_type in ["hebdo", "mensu", "trim"]:
-            period_code = get_period_code(TIMESTAMP, period_type)
-            with open(os.path.join(path_app, "files", "pretraite", f"{period_code}.txt"), "w", encoding="utf-8") as f:
-                f.write(str(TIMESTAMP))
-                f.close()
-            output_filename = f"{period_code}.csv"
-            full_path = target_dir / output_filename
-            if not period_type == "hebdo":
-                if not full_path.exists():
-                    target_dir.mkdir(parents=True, exist_ok=True)
-                    shutil.copy(source_file, full_path)
-                    functions_anfr.log_message(f"Fichier copié vers {full_path}", "INFO")
-                else:
-                    functions_anfr.log_message(f"Fichier déjà présent : {full_path}", "WARN")
+    for period_type in ["hebdo", "mensu", "trim"]:
+        period_code = get_period_code(TIMESTAMP, period_type)
+        with open(os.path.join(path_app, "files", "pretraite", f"{period_code}.txt"), "w", encoding="utf-8") as f:
+            f.write(str(TIMESTAMP))
+            f.close()
+        output_filename = f"{period_code}.csv"
+        full_path = target_dir / output_filename
+        if not period_type == "hebdo":
+            if not full_path.exists():
+                target_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy(source_file, full_path)
+                functions_anfr.log_message(f"Fichier copié vers {full_path}", "INFO")
+            else:
+                functions_anfr.log_message(f"Fichier déjà présent : {full_path}", "WARN")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pilote l'ensemble des scripts du projet.")

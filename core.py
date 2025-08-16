@@ -13,6 +13,7 @@ def run_script(script_name, *args):
         return result.returncode
     except subprocess.CalledProcessError as e:
         functions_anfr.log_message(f"Le script {script_name} a échoué avec le code de retour {e.returncode}. Erreur: {e}", "FATAL")
+        functions_anfr.send_sms(f"{script_name} - {e}", "FATAL")
         sys.exit(e.returncode)
     except Exception as e:
         functions_anfr.log_message(f"Une erreur inattendue est survenue lors de l'exécution de {script_name}: {e}", "FATAL")

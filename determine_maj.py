@@ -22,7 +22,7 @@ def timeout_handler(signum, frame):
     """Gestionnaire de signal pour arrêter l'exécution en cas de dépassement du délai."""
     raise TimeoutError("Le temps d'exécution alloué a été dépassé.")
 
-def check_and_execute(url, path_app, script_to_execute, timeout=300):
+def check_and_execute(url, path_app, script_to_execute, timeout=1200):
     """Vérifie la présence du fichier localement et exécute le script core.py si le fichier n'est pas présent,
        avec un délai maximal d'exécution."""
     try:
