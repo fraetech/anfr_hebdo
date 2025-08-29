@@ -320,8 +320,8 @@ class OptimizedProcessor:
         techs_old = self.techs_old_map.get(key, set())
         
         result = (
-            (techs_new and techs_new <= ZB_TECHNOS) or
-            (techs_old and techs_old <= ZB_TECHNOS)
+            (len(techs_new) > 0 and techs_new <= ZB_TECHNOS) or
+            (len(techs_old) > 0 and techs_old <= ZB_TECHNOS)
         )
         
         self._zb_cache[key] = result
