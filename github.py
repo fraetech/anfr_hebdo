@@ -30,7 +30,7 @@ def get_period_code(timestamp_str: str, type: str) -> str:
 
 def copy_files(update_type: str, path_app: Path, period_code: str):
     source_dir = path_app / "files" / "pretraite"
-    repo_dir = path_app.parent / "maj-hebdo"
+    repo_dir = path_app.parent / "fraetech.github.io"
     dest_dir = repo_dir / "files" / update_type
     if update_type == "hebdo":
         files = ["index.csv", "bouygues.csv", "free.csv", "orange.csv", "sfr.csv", f"{period_code}.csv", "timestamp.txt", f"{period_code}.txt"]

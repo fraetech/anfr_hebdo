@@ -23,7 +23,7 @@ def main(args):
     """Fonction principale pour orchestrer l'exécution des différents scripts."""
     # Spécifie les chemins des fichiers
     path_app = Path(__file__).resolve().parent
-    repo_dir = path_app.parent / "maj-hebdo"
+    repo_dir = path_app.parent / "fraetech.github.io"
     path_compare = os.path.join(path_app, 'compare.py')
     path_pretrait = os.path.join(path_app, 'pretrait.py')
     path_historique = os.path.join(path_app, 'historique.py')

@@ -56,7 +56,7 @@ def update_history_csv(type_: str, timestamp_str: str):
     label, path = build_label_and_path(period_code, dt, type_)
 
     path_app = Path(__file__).resolve().parent
-    repo_dir = path_app.parent / "maj-hebdo"
+    repo_dir = path_app.parent / "fraetech.github.io"
 
     history_path = os.path.join(repo_dir, "files", "history.csv")
     existing_rows = []
