@@ -137,7 +137,7 @@ def rename_old_file(old_path, new_path):
 
 def load_and_process_csv(file_path):
     try:
-        df = pd.read_csv(file_path, sep=",")
+        df = pd.read_csv(file_path, sep=None, engine='python')
         df = df[['adm_lb_nom', 'sup_id', 'emr_lb_systeme', 'nat_id', 'sup_nm_haut', 'tpo_id', 'adr_lb_lieu', 'adr_lb_add1', 'adr_lb_add2', 'adr_lb_add3', 'com_cd_insee', 'coordonnees', 'statut', 'emr_dt']]
         df = df.rename(columns={
             'adm_lb_nom': 'operateur',

@@ -172,14 +172,14 @@ class OptimizedProcessor:
             ]
             
             # Charger d'abord avec toutes les colonnes pour voir ce qui existe
-            df_sample = pd.read_csv(file_path, nrows=0)
+            df_sample = pd.read_csv(file_path, nrows=0, sep=None, engine='python')
             available_cols = df_sample.columns.tolist()
             
             # Prendre les colonnes de base disponibles + les colonnes avec suffixe disponibles
             usecols = [col for col in base_cols + suffixed_cols if col in available_cols]
             
             # Chargement avec les colonnes disponibles seulement
-            df = pd.read_csv(file_path, usecols=usecols, dtype=str, na_filter=True)
+            df = pd.read_csv(file_path, usecols=usecols, dtype=str, na_filter=True, sep=None, engine='python')
             df['source'] = source
             
             functions_anfr.log_message(f"Chargement du fichier '{file_path}' terminé avec succès.")
@@ -589,11 +589,11 @@ def main(no_insee, no_process, debug):
     try:
         # Chargement complet pour extract_tech_dict et build_new_status_map
         functions_anfr.log_message(f"Chargement de {os.path.basename(OLD_CSV_PATH)}...", "INFO")
-        df_old = pd.read_csv(OLD_CSV_PATH, sep=",", on_bad_lines="skip", dtype=str)
+        df_old = pd.read_csv(OLD_CSV_PATH, on_bad_lines="skip", dtype=str, sep=None, engine='python')
         functions_anfr.log_message(f"✓ {os.path.basename(OLD_CSV_PATH)} chargé ({len(df_old):,} lignes)", "INFO")
         
         functions_anfr.log_message(f"Chargement de {os.path.basename(NEW_CSV_PATH)}...", "INFO")
-        df_new = pd.read_csv(NEW_CSV_PATH, sep=",", on_bad_lines="skip", dtype=str)
+        df_new = pd.read_csv(NEW_CSV_PATH, on_bad_lines="skip", dtype=str, sep=None, engine='python')
         functions_anfr.log_message(f"✓ {os.path.basename(NEW_CSV_PATH)} chargé ({len(df_new):,} lignes)", "INFO")
         
         # Vérifier les colonnes nécessaires pour tech extraction
