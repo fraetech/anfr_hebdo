@@ -84,21 +84,6 @@ class OptimizedProcessor:
         self._zb_cache: Dict[Tuple[str, str], bool] = {}
         self._new_cache: Dict[Tuple[str, str], bool] = {}
     
-    def get_period_code(self, timestamp_str: str, type: str) -> str:
-        """Génère le code de période selon le type."""
-        dt = datetime.strptime(timestamp_str, "%d/%m/%Y à %H:%M:%S")
-        
-        if type == "hebdo":
-            iso_year, iso_week, _ = dt.isocalendar()
-            return f"S{iso_week:02d}_{iso_year}"
-        elif type == "mensu":
-            return f"{dt.month:02d}_{dt.year}"
-        elif type == "trim":
-            trimestre = (dt.month - 1) // 3 + 1
-            return f"T{trimestre}_{dt.year}"
-        else:
-            raise ValueError("Type non reconnu. Utiliser 'hebdo', 'mensu' ou 'trim'.")
-    
     def load_insee_data_optimized(self, filepath: str, encoding: str = 'utf-8') -> Dict[str, str]:
         """Charge les données INSEE de manière optimisée."""
         try:
@@ -213,6 +198,15 @@ class OptimizedProcessor:
         """Version vectorisée de determine_action."""
         result = pd.Series(index=df.index, dtype=str)
         
+        # Changements détectés (CHA, CHI, CHL, et combinaisons)
+        mask_cha = df['source'] == 'comp_change.csv'
+        # Utiliser la colonne action directement si elle existe
+        if 'action' in df.columns and df[mask_cha]['action'].notna().any():
+            result.loc[mask_cha] = df.loc[mask_cha, 'action']
+        else:
+            # Fallback si action n'est pas déjà définie
+            result.loc[mask_cha] = 'CHA'
+        
         # AJO ou ALL pour comp_added
         mask_ajo = df['source'] == 'comp_added.csv'
 
@@ -289,6 +283,38 @@ class OptimizedProcessor:
                   .to_dict())
         
         return {k: set(v) for k, v in grouped.items()}
+    
+    def format_technology_with_changes(self, techs_str: str, old_value: Optional[str], change_type: str) -> str:
+        """Formate le champ technologie en intégrant les anciennes valeurs pour CHA/CHI/CHL.
+        
+        Args:
+            techs_str: Technologies actuelles (liste séparée par ', ')
+            old_value: Ancienne adresse (CHA), ancien ID support (CHI), ou anciennes coordonnées (CHL)
+            change_type: Type de changement ('CHA', 'CHI', ou 'CHL')
+        
+        Returns:
+            Chaîne formattée avec technologies et informations du changement
+        """
+        if not old_value or change_type not in ['CHA', 'CHI', 'CHL']:
+            return techs_str
+        
+        old_value = str(old_value).strip()
+        if not old_value:
+            return techs_str
+        
+        # Créer le label en fonction du type de changement
+        change_label = ""
+        if change_type == 'CHA':
+            change_label = f"[CHA: ancienne adresse = {old_value}]"
+        elif change_type == 'CHI':
+            change_label = f"[CHI: ancien support ID = {old_value}]"
+        elif change_type == 'CHL':
+            change_label = f"[CHL: anciennes coordonnées = {old_value}]"
+        
+        # Ajouter le label aux technologies
+        if change_label:
+            return f"{techs_str} {change_label}"
+        return techs_str
     
     def build_new_status_map_optimized(self, df_old: pd.DataFrame) -> Dict[Tuple[str, str], List[str]]:
         """Version optimisée de build_new_status_map."""
@@ -439,14 +465,229 @@ class OptimizedProcessor:
                 functions_anfr.log_message("Tous les fichiers sont vides.", "FATAL")
                 raise SystemExit(1)
             
+            # === DÉTECTION DES CHANGEMENTS: CHA, CHI, CHL, et combinaisons ===
+            change_dfs = {}  # Dict pour stocker les différents types de changements
+            indices_to_remove_added = []
+            indices_to_remove_removed = []
+            
+            def parse_coords(coord_str):
+                """Parse 'lat , lon' format et retourne (lat, lon) en float, ou (None, None)"""
+                if pd.isna(coord_str):
+                    return (None, None)
+                try:
+                    # Normaliser le format et split
+                    coord_str = str(coord_str).replace(' ', '')
+                    parts = coord_str.split(',')
+                    if len(parts) == 2:
+                        return (float(parts[0]), float(parts[1]))
+                except:
+                    pass
+                return (None, None)
+            
+            def coord_distance_meters(lat1, lon1, lat2, lon2):
+                """Approximation simple de la distance entre deux points en mètres
+                Utilise la formule de Haversine simplifiée"""
+                if lat1 is None or lat2 is None:
+                    return None
+                import math
+                R = 6371000  # Rayon terrestre en mètres
+                dlat = math.radians(lat2 - lat1)
+                dlon = math.radians(lon2 - lon1)
+                a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
+                c = 2 * math.asin(math.sqrt(a))
+                return R * c
+            
+            if not added_df.empty and not removed_df.empty:
+                # === Détection de CHA: même ID support, opérateur, techno, coords → adresse change ===
+                # Merge sur id_support + operateur + technologie + coordonnees
+                merge_cols_cha = ['id_support', 'operateur', 'technologie', 'code_insee', 'coordonnees']
+                available_cols_cha = [col for col in merge_cols_cha if col in added_df.columns and col in removed_df.columns]
+                
+                if available_cols_cha == merge_cols_cha:
+                    removed_cha = removed_df[available_cols_cha + ['adresse0', 'adresse1', 'adresse2', 'adresse3']].copy()
+                    added_cha = added_df[available_cols_cha + ['adresse0', 'adresse1', 'adresse2', 'adresse3']].copy()
+                    removed_cha['_idx_rem'] = removed_df.index
+                    added_cha['_idx_add'] = added_df.index
+                    
+                    matched_cha = pd.merge(removed_cha, added_cha, on=available_cols_cha, how='inner', suffixes=('_rem', '_add'))
+                    
+                    if not matched_cha.empty:
+                        # Vérifier que les adresses sont différentes
+                        addr_diff_mask = pd.Series(False, index=matched_cha.index)
+                        for col in ['adresse0', 'adresse1', 'adresse2', 'adresse3']:
+                            col_rem = f'{col}_rem'
+                            col_add = f'{col}_add'
+                            rem_vals = matched_cha[col_rem].fillna('').astype(str).str.strip()
+                            add_vals = matched_cha[col_add].fillna('').astype(str).str.strip()
+                            addr_diff_mask = addr_diff_mask | (rem_vals != add_vals)
+                        
+                        matched_cha_filtered = matched_cha[addr_diff_mask].copy()
+                        if not matched_cha_filtered.empty:
+                            idx_rem = matched_cha_filtered['_idx_rem'].tolist()
+                            idx_add = matched_cha_filtered['_idx_add'].tolist()
+                            indices_to_remove_removed.extend(idx_rem)
+                            indices_to_remove_added.extend(idx_add)
+                            
+                            change_df = added_df.loc[idx_add].copy()
+                            change_df['source'] = 'comp_change.csv'
+                            change_df['action'] = 'CHA'
+                            
+                            # Ajouter les anciennes adresses dans une colonne dédiée
+                            old_addrs = []
+                            for i, (idx_a, idx_r) in enumerate(zip(idx_add, idx_rem)):
+                                old_row = removed_df.loc[idx_r]
+                                # Construire l'ancienne adresse en excluant les valeurs NaN/vides
+                                old_addr_parts = []
+                                for col in ['adresse0', 'adresse1', 'adresse2', 'adresse3']:
+                                    val = old_row.get(col, '')
+                                    # Convertir en string et nettoyer
+                                    val_str = str(val).strip() if pd.notna(val) else ''
+                                    # Ignorer les 'nan' et les valeurs vides
+                                    if val_str and val_str != 'nan':
+                                        old_addr_parts.append(val_str)
+                                old_addr = ' '.join(old_addr_parts) if old_addr_parts else ''
+                                old_addrs.append(old_addr)
+                            change_df['old_address'] = old_addrs
+                            
+                            change_dfs['CHA'] = change_df
+                            functions_anfr.log_message(f"Détecté {len(change_df)} changements CHA.")
+                
+                # === Détection de CHI: même opérateur, techno, coords, adresses → ID change ===
+                merge_cols_chi = ['operateur', 'technologie', 'code_insee', 'coordonnees']
+                available_cols_chi = [col for col in merge_cols_chi if col in added_df.columns and col in removed_df.columns]
+                
+                if available_cols_chi == merge_cols_chi:
+                    removed_chi = removed_df[available_cols_chi + ['id_support', 'adresse0', 'adresse1', 'adresse2', 'adresse3']].copy()
+                    added_chi = added_df[available_cols_chi + ['id_support', 'adresse0', 'adresse1', 'adresse2', 'adresse3']].copy()
+                    removed_chi['_idx_rem'] = removed_df.index
+                    added_chi['_idx_add'] = added_df.index
+                    
+                    matched_chi = pd.merge(removed_chi, added_chi, on=available_cols_chi, how='inner', suffixes=('_rem', '_add'))
+                    
+                    if not matched_chi.empty:
+                        # Vérifier ID différent, adresses identiques
+                        id_diff = matched_chi['id_support_rem'].astype(str) != matched_chi['id_support_add'].astype(str)
+                        addr_same = pd.Series(True, index=matched_chi.index)
+                        
+                        for col in ['adresse0', 'adresse1', 'adresse2', 'adresse3']:
+                            col_rem = f'{col}_rem'
+                            col_add = f'{col}_add'
+                            rem_vals = matched_chi[col_rem].fillna('').astype(str).str.strip()
+                            add_vals = matched_chi[col_add].fillna('').astype(str).str.strip()
+                            addr_same = addr_same & (rem_vals == add_vals)
+                        
+                        matched_chi_filtered = matched_chi[id_diff & addr_same].copy()
+                        if not matched_chi_filtered.empty:
+                            idx_rem = matched_chi_filtered['_idx_rem'].tolist()
+                            idx_add = matched_chi_filtered['_idx_add'].tolist()
+                            # Éviter les doublons avec CHA
+                            idx_rem = [i for i in idx_rem if i not in indices_to_remove_removed]
+                            idx_add = [i for i in idx_add if i not in indices_to_remove_added]
+                            
+                            if idx_add and idx_rem:
+                                indices_to_remove_removed.extend(idx_rem)
+                                indices_to_remove_added.extend(idx_add)
+                                
+                                change_df = added_df.loc[idx_add].copy()
+                                change_df['source'] = 'comp_change.csv'
+                                change_df['action'] = 'CHI'
+                                
+                                # Ajouter les anciens IDs de support dans une colonne dédiée
+                                old_ids = matched_chi_filtered['id_support_rem'].tolist()
+                                change_df['old_id_support'] = old_ids
+                                
+                                change_dfs['CHI'] = change_df
+                                functions_anfr.log_message(f"Détecté {len(change_df)} changements CHI.")
+                
+                # === Détection de CHL: même ID support, opérateur, techno, adresses → coordonnees changent ===
+                merge_cols_chl = ['id_support', 'operateur', 'technologie', 'adresse0', 'adresse1', 'adresse2', 'adresse3']
+                available_cols_chl = [col for col in merge_cols_chl if col in added_df.columns and col in removed_df.columns]
+                
+                if available_cols_chl == merge_cols_chl:
+                    removed_chl = removed_df[available_cols_chl + ['code_insee', 'coordonnees']].copy()
+                    added_chl = added_df[available_cols_chl + ['code_insee', 'coordonnees']].copy()
+                    removed_chl['_idx_rem'] = removed_df.index
+                    added_chl['_idx_add'] = added_df.index
+                    
+                    matched_chl = pd.merge(removed_chl, added_chl, on=available_cols_chl, how='inner', suffixes=('_rem', '_add'))
+                    
+                    if not matched_chl.empty:
+                        # Vérifier coordonnées différentes
+                        coord_diff_mask = pd.Series(False, index=matched_chl.index)
+                        
+                        for idx, row in matched_chl.iterrows():
+                            lat1, lon1 = parse_coords(row['coordonnees_rem'])
+                            lat2, lon2 = parse_coords(row['coordonnees_add'])
+                            
+                            if lat1 is not None and lat2 is not None:
+                                try:
+                                    dist = coord_distance_meters(lat1, lon1, lat2, lon2)
+                                    if dist is not None and dist >= 50:  # Seuil de 50 mètres
+                                        coord_diff_mask.loc[idx] = True
+                                except:
+                                    pass
+                            elif lat1 != lat2 or lon1 != lon2:
+                                coord_diff_mask.loc[idx] = True
+                        
+                        matched_chl_filtered = matched_chl[coord_diff_mask].copy()
+                        if not matched_chl_filtered.empty:
+                            idx_rem = matched_chl_filtered['_idx_rem'].tolist()
+                            idx_add = matched_chl_filtered['_idx_add'].tolist()
+                            # Éviter les doublons
+                            idx_rem = [i for i in idx_rem if i not in indices_to_remove_removed]
+                            idx_add = [i for i in idx_add if i not in indices_to_remove_added]
+                            
+                            if idx_add and idx_rem:
+                                indices_to_remove_removed.extend(idx_rem)
+                                indices_to_remove_added.extend(idx_add)
+                                
+                                change_df = added_df.loc[idx_add].copy()
+                                change_df['source'] = 'comp_change.csv'
+                                change_df['action'] = 'CHL'
+                                
+                                # Ajouter les anciennes coordonnées dans une colonne dédiée
+                                old_coords = matched_chl_filtered['coordonnees_rem'].tolist()
+                                change_df['old_coordonnees'] = old_coords
+                                
+                                change_dfs['CHL'] = change_df
+                                functions_anfr.log_message(f"Détecté {len(change_df)} changements CHL.")
+            
+            # Retirer les doublons d'indices
+            indices_to_remove_added = list(set(indices_to_remove_added))
+            indices_to_remove_removed = list(set(indices_to_remove_removed))
+            
+            if indices_to_remove_removed:
+                removed_df = removed_df.drop(indices_to_remove_removed)
+
+            if indices_to_remove_added:
+                added_df = added_df.drop(indices_to_remove_added)
+            
             # Détermination des actions de manière vectorisée
             all_dfs = [added_df, modified_df, removed_df]
             for df in all_dfs:
                 if not df.empty:
                     df['action'] = self.determine_action_vectorized(df)
+                    # Initialiser les colonnes de changement (seront remplies pour CHA/CHI/CHL)
+                    df['old_address'] = None
+                    df['old_id_support'] = None
+                    df['old_coordonnees'] = None
+            
+            # Ajouter les changements détectés à la liste
+            for change_type, change_df in change_dfs.items():
+                if not change_df.empty:
+                    # S'assurer que toutes les colonnes de changement existent
+                    for col in ['old_address', 'old_id_support', 'old_coordonnees']:
+                        if col not in change_df.columns:
+                            change_df[col] = None
+                    all_dfs.append(change_df)
             
             # Concaténation
             final_df = pd.concat([df for df in all_dfs if not df.empty], ignore_index=True)
+            
+            # S'assurer que les colonnes de changement existent après concaténation
+            for col in ['old_address', 'old_id_support', 'old_coordonnees']:
+                if col not in final_df.columns:
+                    final_df[col] = None
             
             # Uniformisation des colonnes avec combine_first vectorisé
             # Gérer les colonnes avec suffixes _x et _y
@@ -481,14 +722,33 @@ class OptimizedProcessor:
                 'type_support': 'first',
                 'hauteur_support': 'first',
                 'proprietaire_support': 'first',
-                'date_activ': 'first'
+                'date_activ': 'first',
+                'action': 'first',  # Ajouter action pour accès dans le post-traitement
+                'old_address': 'first',  # Ajouter les colonnes de changement
+                'old_id_support': 'first',
+                'old_coordonnees': 'first'
             }
             
             final_df = (final_df.groupby(['id_support', 'operateur', 'action'], as_index=False)
                        .agg(agg_dict))
             
-            # Tri des technologies avec cache
-            final_df['technologie'] = final_df['technologie'].apply(self.sort_technologies_optimized)
+            # Post-traitement du champ technologie pour intégrer les changements CHA/CHI/CHL
+            final_df['technologie'] = final_df.apply(
+                lambda row: self.format_technology_with_changes(
+                    self.sort_technologies_optimized(row['technologie']),
+                    row.get('old_address') if row.get('action') == 'CHA' else (
+                        row.get('old_id_support') if row.get('action') == 'CHI' else (
+                            row.get('old_coordonnees') if row.get('action') == 'CHL' else None
+                        )
+                    ),
+                    row.get('action', '')
+                ) if row.get('action') in ['CHA', 'CHI', 'CHL'] 
+                else self.sort_technologies_optimized(row['technologie']),
+                axis=1
+            )
+            
+            # Nettoyage des colonnes de changement (ne sont plus utiles)
+            final_df = final_df.drop(columns=['old_address', 'old_id_support', 'old_coordonnees'], errors='ignore')
             
             # Transformations des supports avec map vectorisé
             final_df['type_support'] = (final_df['type_support'].fillna("Inconnu")
@@ -563,7 +823,7 @@ class OptimizedProcessor:
                     operator_df.to_csv(os.path.join(output_path, filename), index=False)
             
             # Fichier avec timestamp
-            time_period = self.get_period_code(TIMESTAMP, args.update_type)
+            time_period = functions_anfr.get_period_code(TIMESTAMP, args.update_type)
             final_df.to_csv(os.path.join(output_path, f"{time_period}.csv"), index=False)
             
             functions_anfr.log_message("Fichiers finaux générés avec succès, duplications supprimées.")

@@ -15,22 +15,6 @@ with open(fc_file, "r", encoding="utf-8") as f:
     lines = f.readlines()
     TIMESTAMP = lines[0].strip()
 
-def get_period_code(timestamp_str: str, type: str) -> str:
-    dt = datetime.strptime(timestamp_str, "%d/%m/%Y à %H:%M:%S")
-    
-    if type == "hebdo":
-        iso_year, iso_week, _ = dt.isocalendar()
-        return f"S{iso_week:02d}_{iso_year}"
-    
-    elif type == "mensu":
-        return f"{dt.month:02d}_{dt.year}"
-    
-    elif type == "trim":
-        trimestre = (dt.month - 1) // 3 + 1
-        return f"T{trimestre}_{dt.year}"
-    
-    else:
-        raise ValueError("Type non reconnu. Utiliser 'hebdo', 'mensu' ou 'trim'.")
 
 def build_label_and_path(period_code: str, dt: datetime, type_: str):
     if type_ == "hebdo":
@@ -52,7 +36,7 @@ def build_label_and_path(period_code: str, dt: datetime, type_: str):
 
 def update_history_csv(type_: str, timestamp_str: str):
     dt = datetime.strptime(timestamp_str, "%d/%m/%Y à %H:%M:%S")
-    period_code = get_period_code(timestamp_str, type_)
+    period_code = functions_anfr.get_period_code(timestamp_str, type_)
     label, path = build_label_and_path(period_code, dt, type_)
 
     path_app = Path(__file__).resolve().parent
@@ -88,7 +72,7 @@ def main(args):
     source_file = lines[2].strip()
 
     for period_type in ["hebdo", "mensu", "trim"]:
-        period_code = get_period_code(TIMESTAMP, period_type)
+        period_code = functions_anfr.get_period_code(TIMESTAMP, period_type)
         with open(os.path.join(path_app, "files", "pretraite", f"{period_code}.txt"), "w", encoding="utf-8") as f:
             f.write(str(TIMESTAMP))
             f.close()

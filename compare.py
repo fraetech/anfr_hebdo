@@ -62,9 +62,6 @@ def csv_files_update(path_new_csv, update_type):
                     old_csv_path = path_check_file
     else:
         expected_filename = get_previous_period_filename(update_type)
-        #expected_filename = "02_2025.csv"
-        #expected_filename = "T1_2025.csv"
-        
         # Trouver le fichier de la période précédente
         for fichier in os.listdir(dir_path):
             if fichier == expected_filename:
@@ -155,6 +152,14 @@ def load_and_process_csv(file_path):
             'statut': 'statut',
             'emr_dt': 'date_activ'
         })
+        
+        # === NORMALISATION DES COLONNES CLÉ ===
+        # Normaliser code_insee: zfill(5) pour préserver les zéros en tête (06073 vs 6073)
+        df['code_insee'] = df['code_insee'].astype(str).str.zfill(5)
+        
+        # Normaliser coordonnees: format "lat , lon" avec espaces consistants
+        df['coordonnees'] = df['coordonnees'].astype(str).str.replace(r'\s*,\s*', ' , ', regex=True)
+        
         return df
     except FileNotFoundError:
         functions_anfr.log_message(f"Le fichier '{file_path}' est introuvable.", "FATAL")
@@ -232,6 +237,12 @@ def main(no_file_update, no_download, no_compare, no_write, old_csv_name, new_cs
     download_path = os.path.join(path_app, 'files', 'from_anfr')
     url = "https://data.anfr.fr/d4c/api/records/2.0/downloadfile/format=csv&resource_id=88ef0887-6b0f-4d3f-8545-6d64c8f597da&use_labels_for_header=true"
 
+    # Initialiser les variables
+    curr_csv_path = None
+    old_csv_path = None
+    current_csv_path = None
+    timestamp = None
+
     if not no_download and not new_csv_name:
         filename_from_anfr = functions_anfr.get_filename_from_server(url)
         download_path_r = os.path.join(download_path, filename_from_anfr)
@@ -239,27 +250,30 @@ def main(no_file_update, no_download, no_compare, no_write, old_csv_name, new_cs
         curr_csv_path = download_data(url, download_path_r)
         functions_anfr.log_message("Téléchargement terminé")
     else:
-        if no_download:
+        if no_download and not new_csv_name:
             functions_anfr.log_message("Téléchargement sauté : demandé par argument", "WARN")
-            curr_csv_path = r"PATHPATHPATH"
-        else:
+            curr_csv_path = None
+        elif new_csv_name:
             curr_csv_path = os.path.join(download_path, new_csv_name)
             functions_anfr.log_message(f"Vous forcez la MAJ avec le current_csv : {curr_csv_path}", "INFO")
 
     if not no_file_update and not old_csv_name:
-        old_csv_path, current_csv_path, timestamp = csv_files_update(curr_csv_path, update_type)
-        functions_anfr.log_message(f"Comparaison entre {old_csv_path} et {current_csv_path}")
+        if curr_csv_path:
+            old_csv_path, current_csv_path, timestamp = csv_files_update(curr_csv_path, update_type)
+            functions_anfr.log_message(f"Comparaison entre {old_csv_path} et {current_csv_path}")
     else:
-        if no_file_update:
+        if old_csv_name and new_csv_name:
+            # Mode forçage complet
+            current_csv_path = os.path.join(download_path, new_csv_name)
+            old_csv_path = os.path.join(download_path, old_csv_name)
+            timestamp = str(timestamp_a).strip('\"') if timestamp_a else "28/12/2025 à 12:00:00"
+            functions_anfr.log_message(f"Vous forcez la MAJ avec le old_csv : {old_csv_path}", "INFO")
+            functions_anfr.log_message(f"Vous forcez la MAJ avec le new_csv : {current_csv_path}", "INFO")
+            functions_anfr.log_message(f"Vous forcez la MAJ avec le timestamp : {timestamp}", "INFO")
+        elif no_file_update:
             current_csv_path = curr_csv_path
             timestamp = "15/12/2020 à 13:37:37"
             functions_anfr.log_message(f"Mise à jour des fichiers CSV sautée : vous n'irez pas loin ainsi...", "ERROR")
-        else:
-            current_csv_path = curr_csv_path
-            old_csv_path = os.path.join(download_path, old_csv_name)
-            timestamp = str(timestamp_a).strip('\"')
-            functions_anfr.log_message(f"Vous forcez la MAJ avec le old_csv : {old_csv_path}", "INFO")
-            functions_anfr.log_message(f"Vous forcez la MAJ avec le timestamp : {timestamp}", "INFO")
             
     start_time = time.time()
 
@@ -280,25 +294,32 @@ def main(no_file_update, no_download, no_compare, no_write, old_csv_name, new_cs
     if not no_write:
         functions_anfr.log_message("Début écriture des résultats")
         string_sms = ""
-        if df_removed is not None:
+        if df_removed is not None and not df_removed.empty:
             if debug:
                 functions_anfr.log_message("Début écriture résultats df_removed", "DEBUG")
-            string_sms += write_results(df_removed, os.path.join(path_app, 'files', 'compared', 'comp_removed.csv'), "Lignes supprimées : ")
-        if df_modified is not None:
+            result = write_results(df_removed, os.path.join(path_app, 'files', 'compared', 'comp_removed.csv'), "Lignes supprimées : ")
+            if result:
+                string_sms += result
+        if df_modified is not None and not df_modified.empty:
             if debug:
                 functions_anfr.log_message("Début écriture résultats df_modified", "DEBUG")
-            string_sms += " " + write_results(df_modified, os.path.join(path_app, 'files', 'compared', 'comp_modified.csv'), "Lignes modifiées : ")
-        if df_added is not None:
+            result = write_results(df_modified, os.path.join(path_app, 'files', 'compared', 'comp_modified.csv'), "Lignes modifiées : ")
+            if result:
+                string_sms += " " + result
+        if df_added is not None and not df_added.empty:
             if debug:
                 functions_anfr.log_message("Début écriture résultats df_added", "DEBUG")
-            string_sms += " " + write_results(df_added, os.path.join(path_app, 'files', 'compared', 'comp_added.csv'), "Nouvelles lignes : ")
+            result = write_results(df_added, os.path.join(path_app, 'files', 'compared', 'comp_added.csv'), "Nouvelles lignes : ")
+            if result:
+                string_sms += " " + result
         functions_anfr.log_message("Ecriture des résultats terminée")
-        if any(x.empty for x in (df_removed, df_modified, df_added)):
+        if any(x is not None and x.empty for x in (df_removed, df_modified, df_added)):
             functions_anfr.log_message("MAJ ANFR vide, fin du programme", "FATAL")
 
             # Ajouter le nom du fichier courant à ignores.txt
-            with open(os.path.join(path_app, 'files', 'ignores.txt'), "a", encoding="utf-8") as f:
-                f.write(os.path.basename(curr_csv_path) + "\n")
+            if curr_csv_path:
+                with open(os.path.join(path_app, 'files', 'ignores.txt'), "a", encoding="utf-8") as f:
+                    f.write(os.path.basename(curr_csv_path) + "\n")
 
             # Envoyer les SMS
             functions_anfr.send_sms(string_sms, "INFO")
@@ -306,8 +327,9 @@ def main(no_file_update, no_download, no_compare, no_write, old_csv_name, new_cs
 
             # Supprimer le fichier de la MAJ vide
             try:
-                os.remove(curr_csv_path)
-                functions_anfr.log_message(f"Fichier supprimé : {curr_csv_path}", "INFO")
+                if curr_csv_path:
+                    os.remove(curr_csv_path)
+                    functions_anfr.log_message(f"Fichier supprimé : {curr_csv_path}", "INFO")
             except Exception as e:
                 functions_anfr.log_message(f"Erreur lors de la suppression du fichier : {e}", "ERROR")
 

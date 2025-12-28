@@ -9,10 +9,35 @@ import os
 h_directory = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 send_sms_path = os.path.join(h_directory, "dim_brest", "sms.py")
 
+
 def log_message(message, level="INFO"):
     """Fonction de log pour afficher un timestamp avec le niveau d'erreur."""
     timestamp = datetime.now().strftime("%d/%m/%Y à %H:%M:%S")
     print(f"{timestamp} [{level}] -> {message}")
+
+
+def get_period_code(timestamp_str: str, period_type: str) -> str:
+    """Génère le code de période selon le type.
+    
+    Args:
+        timestamp_str: Timestamp au format "%d/%m/%Y à %H:%M:%S"
+        period_type: Type de période ('hebdo', 'mensu' ou 'trim')
+    
+    Returns:
+        Code de période formaté (S##_YYYY, MM_YYYY ou T#_YYYY)
+    """
+    dt = datetime.strptime(timestamp_str, "%d/%m/%Y à %H:%M:%S")
+    
+    if period_type == "hebdo":
+        iso_year, iso_week, _ = dt.isocalendar()
+        return f"S{iso_week:02d}_{iso_year}"
+    elif period_type == "mensu":
+        return f"{dt.month:02d}_{dt.year}"
+    elif period_type == "trim":
+        trimestre = (dt.month - 1) // 3 + 1
+        return f"T{trimestre}_{dt.year}"
+    else:
+        raise ValueError("Type non reconnu. Utiliser 'hebdo', 'mensu' ou 'trim'.")
 
 def send_sms(message, level="INFO"):
     """Exécute le scrpt sms.py avec le message en argument."""

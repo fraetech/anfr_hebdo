@@ -82,7 +82,6 @@ def main(args):
     if not args.skip_github:
         functions_anfr.log_message("Push vers GitHub avec github.py")
         github_args = []
-        # ARGS ARGS ARGS
         github_args.append(args.update_type)
         if args.debug:
             github_args.append('--debug')

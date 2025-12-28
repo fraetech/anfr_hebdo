@@ -14,19 +14,6 @@ def get_timestamp():
     with open(fc_file, "r", encoding="utf-8") as f:
         return f.readline().strip()
 
-def get_period_code(timestamp_str: str, type: str) -> str:
-    dt = datetime.datetime.strptime(timestamp_str, "%d/%m/%Y à %H:%M:%S")
-
-    if type == "hebdo":
-        iso_year, iso_week, _ = dt.isocalendar()
-        return f"S{iso_week:02d}_{iso_year}"
-    elif type == "mensu":
-        return f"{dt.month:02d}_{dt.year}"
-    elif type == "trim":
-        trimestre = (dt.month - 1) // 3 + 1
-        return f"T{trimestre}_{dt.year}"
-    else:
-        raise ValueError("Type non reconnu. Utiliser 'hebdo', 'mensu' ou 'trim'.")
 
 def copy_files(update_type: str, path_app: Path, period_code: str):
     source_dir = path_app / "files" / "pretraite"
@@ -86,7 +73,7 @@ def main(args):
         sys.exit(1)
 
     timestamp = get_timestamp()
-    period_code = get_period_code(timestamp, args.update_type)
+    period_code = functions_anfr.get_period_code(timestamp, args.update_type)
     path_app = Path(__file__).resolve().parent
 
     # Copier les fichiers
