@@ -1,5 +1,5 @@
-GitPython==3.1.43
-numpy==1.26.3
-pandas==2.2.0
-python-dotenv==1.0.1
-requests==2.25.1
+GitPython
+numpy
+pandas
+python-dotenv
+requests

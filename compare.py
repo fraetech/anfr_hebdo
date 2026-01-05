@@ -181,7 +181,25 @@ def compare_data(df_old, df_current):
         df_current['date_activ_last'] = df_current['date_activ']
         
         # Merge sur toutes les colonnes identifiantes (sans statut et date_activ)
-        df_merged = pd.merge(df_old, df_current, on=['operateur', 'id_support', 'technologie', 'adresse0', 'adresse1', 'adresse2', 'adresse3', 'code_insee', 'coordonnees'], how='outer')
+        df_merged = pd.merge(
+            df_old, 
+            df_current, 
+            on=[
+                'operateur', 
+                'id_support', 
+                'technologie', 
+                'type_support',
+                'hauteur_support',
+                'proprietaire_support',
+                'adresse0', 
+                'adresse1', 
+                'adresse2', 
+                'adresse3', 
+                'code_insee', 
+                'coordonnees'
+            ], 
+            how='outer'
+        )
         
         # Lignes ajoutées (présentes seulement dans le nouveau CSV)
         df_added = df_merged[df_merged['statut_old'].isna()]

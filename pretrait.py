@@ -145,14 +145,12 @@ class OptimizedProcessor:
             base_cols = [
                 'id_support', 'operateur', 'technologie', 'statut_x', 
                 'adresse0', 'adresse1', 'adresse2', 'adresse3', 
-                'code_insee', 'coordonnees', 'date_activ_x'
+                'code_insee', 'coordonnees', 'date_activ_x',
+                'type_support', 'hauteur_support', 'proprietaire_support'
             ]
             
             # Colonnes avec suffixes possibles
             suffixed_cols = [
-                'type_support_x', 'type_support_y',
-                'hauteur_support_x', 'hauteur_support_y', 
-                'proprietaire_support_x', 'proprietaire_support_y',
                 'statut_y', 'date_activ_y'
             ]
             
@@ -552,6 +550,85 @@ class OptimizedProcessor:
                             change_dfs['CHA'] = change_df
                             functions_anfr.log_message(f"Détecté {len(change_df)} changements CHA.")
                 
+                # === Détection de CHI GÉOGRAPHIQUE: sites proches avec ID différent (fusion multiple changements) ===
+                # Cette détection capture les cas où un support change d'ID mais reste géographiquement au même endroit
+                # avec possibilité de changements d'adresse, hauteur, propriétaire, etc.
+                if 'coordonnees' in added_df.columns and 'coordonnees' in removed_df.columns:
+                    merge_cols_chi_geo = ['operateur', 'technologie', 'code_insee']
+                    available_cols_chi_geo = [col for col in merge_cols_chi_geo if col in added_df.columns and col in removed_df.columns]
+                    
+                    if available_cols_chi_geo == merge_cols_chi_geo:
+                        # Merge large sur opérateur + techno + code_insee
+                        removed_chi_geo = removed_df[available_cols_chi_geo + ['id_support', 'coordonnees']].copy()
+                        added_chi_geo = added_df[available_cols_chi_geo + ['id_support', 'coordonnees']].copy()
+                        removed_chi_geo['_idx_rem'] = removed_df.index
+                        added_chi_geo['_idx_add'] = added_df.index
+                        
+                        matched_chi_geo = pd.merge(removed_chi_geo, added_chi_geo, on=available_cols_chi_geo, how='inner', suffixes=('_rem', '_add'))
+                        
+                        if not matched_chi_geo.empty:
+                            # Filtrer sur proximité géographique (< 100m) et ID différent
+                            chi_geo_matches = []
+                            for idx, row in matched_chi_geo.iterrows():
+                                if row['id_support_rem'] == row['id_support_add']:
+                                    continue  # Même ID, pas intéressant
+                                
+                                # Calculer distance entre les deux points
+                                try:
+                                    lat1, lon1 = parse_coords(row['coordonnees_rem'])
+                                    lat2, lon2 = parse_coords(row['coordonnees_add'])
+                                    
+                                    if lat1 is not None and lat2 is not None:
+                                        dist = coord_distance_meters(lat1, lon1, lat2, lon2)
+                                        if dist is not None and dist < 100:  # Moins de 100m
+                                            chi_geo_matches.append(idx)
+                                except:
+                                    pass
+                            
+                            if chi_geo_matches:
+                                matched_chi_geo_filtered = matched_chi_geo.loc[chi_geo_matches].copy()
+                                
+                                if not matched_chi_geo_filtered.empty:
+                                    # CORRECTION : Créer un mapping idx_add -> idx_rem AVANT le filtrage
+                                    mapping_add_to_rem = dict(zip(
+                                        matched_chi_geo_filtered['_idx_add'],
+                                        matched_chi_geo_filtered['_idx_rem']
+                                    ))
+                                    
+                                    idx_rem = matched_chi_geo_filtered['_idx_rem'].tolist()
+                                    idx_add = matched_chi_geo_filtered['_idx_add'].tolist()
+                                    
+                                    # Éviter les doublons avec CHA
+                                    idx_rem_filtered = [i for i in idx_rem if i not in indices_to_remove_removed]
+                                    idx_add_filtered = [i for i in idx_add if i not in indices_to_remove_added]
+                                    
+                                    # IMPORTANT : Garder seulement les paires cohérentes après filtrage
+                                    valid_pairs = []
+                                    for idx_a in idx_add_filtered:
+                                        idx_r = mapping_add_to_rem.get(idx_a)
+                                        if idx_r is not None and idx_r in idx_rem_filtered:
+                                            valid_pairs.append((idx_a, idx_r))
+                                    
+                                    if valid_pairs:
+                                        idx_add_final = [pair[0] for pair in valid_pairs]
+                                        idx_rem_final = [pair[1] for pair in valid_pairs]
+                                        
+                                        indices_to_remove_removed.extend(idx_rem_final)
+                                        indices_to_remove_added.extend(idx_add_final)
+                                        
+                                        change_df = added_df.loc[idx_add_final].copy()
+                                        change_df['source'] = 'comp_change.csv'
+                                        change_df['action'] = 'CHI'
+                                        
+                                        # Ajouter les anciens IDs de support (maintenant alignés)
+                                        old_ids = [removed_df.loc[idx_r, 'id_support'] for idx_r in idx_rem_final]
+                                        
+                                        change_df = change_df.reset_index(drop=True)
+                                        change_df['old_id_support'] = old_ids
+                                        
+                                        change_dfs['CHI'] = change_df
+                                        functions_anfr.log_message(f"Détecté {len(change_df)} changements CHI (géographique).")
+                
                 # === Détection de CHI: même opérateur, techno, coords, adresses → ID change ===
                 merge_cols_chi = ['operateur', 'technologie', 'code_insee', 'coordonnees']
                 available_cols_chi = [col for col in merge_cols_chi if col in added_df.columns and col in removed_df.columns]
@@ -593,7 +670,10 @@ class OptimizedProcessor:
                                 change_df['action'] = 'CHI'
                                 
                                 # Ajouter les anciens IDs de support dans une colonne dédiée
-                                old_ids = matched_chi_filtered['id_support_rem'].tolist()
+                                old_ids = []
+                                for idx_r in idx_rem:
+                                    old_id = removed_df.loc[idx_r, 'id_support']
+                                    old_ids.append(old_id)
                                 change_df['old_id_support'] = old_ids
                                 
                                 change_dfs['CHI'] = change_df
@@ -651,7 +731,186 @@ class OptimizedProcessor:
                                 
                                 change_dfs['CHL'] = change_df
                                 functions_anfr.log_message(f"Détecté {len(change_df)} changements CHL.")
+
+            # === Détection de CHT: changement de type de support ===
+            if not added_df.empty and not removed_df.empty:
+                # Colonnes communes pour le merge (SANS type_support)
+                merge_cols_cht = ['id_support', 'operateur', 'technologie', 'adresse0', 'adresse1', 'adresse2', 'adresse3', 'code_insee', 'coordonnees']
+                available_cols_cht = [col for col in merge_cols_cht if col in added_df.columns and col in removed_df.columns]
+                
+                # Vérifier que type_support existe dans les deux DataFrames
+                if (available_cols_cht == merge_cols_cht and 
+                    'type_support' in removed_df.columns and 
+                    'type_support' in added_df.columns):
+                    
+                    removed_cht = removed_df[available_cols_cht + ['type_support']].copy()
+                    added_cht = added_df[available_cols_cht + ['type_support']].copy()
+                    removed_cht['_idx_rem'] = removed_df.index
+                    added_cht['_idx_add'] = added_df.index
+                    
+                    matched_cht = pd.merge(removed_cht, added_cht, on=available_cols_cht, how='inner', suffixes=('_rem', '_add'))
+                    
+                    if not matched_cht.empty:
+                        # Normaliser les valeurs avant comparaison
+                        type_rem = matched_cht['type_support_rem'].fillna('').astype(str).str.strip()
+                        type_add = matched_cht['type_support_add'].fillna('').astype(str).str.strip()
+                        type_diff_mask = type_rem != type_add
+                        
+                        matched_cht_filtered = matched_cht[type_diff_mask].copy()
+                        
+                        if not matched_cht_filtered.empty:
+                            idx_rem = matched_cht_filtered['_idx_rem'].tolist()
+                            idx_add = matched_cht_filtered['_idx_add'].tolist()
+                            # Éviter les doublons
+                            idx_rem = [i for i in idx_rem if i not in indices_to_remove_removed]
+                            idx_add = [i for i in idx_add if i not in indices_to_remove_added]
+                            
+                            if idx_add and idx_rem:
+                                indices_to_remove_removed.extend(idx_rem)
+                                indices_to_remove_added.extend(idx_add)
+                                
+                                change_df = added_df.loc[idx_add].copy()
+                                change_df['source'] = 'comp_change.csv'
+                                change_df['action'] = 'CHT'
+                                
+                                # Convertir et ajouter les anciens types de support
+                                old_types = []
+                                for idx_r in idx_rem:
+                                    try:
+                                        type_val = removed_df.loc[idx_r, 'type_support']
+                                        # Gérer les valeurs vides/NaN
+                                        if pd.isna(type_val) or str(type_val).strip() == '':
+                                            old_types.append("Inconnu")
+                                            continue
+                                        
+                                        type_str = str(type_val).strip()
+                                        # Convertir en int si c'est un nombre
+                                        if type_str.replace('.','').replace('-','').isdigit():
+                                            type_int = int(float(type_str))
+                                            type_converted = CORRESPONDANCES_TYPE_SUPPORT.get(type_int, "Inconnu")
+                                        else:
+                                            type_converted = "Inconnu"
+                                    except:
+                                        type_converted = "Inconnu"
+                                    old_types.append(type_converted)
+                                
+                                change_df['old_type_support'] = old_types
+                                change_dfs['CHT'] = change_df
+                                functions_anfr.log_message(f"Détecté {len(change_df)} changements CHT.")
             
+            # === Détection de CHP: changement de propriétaire de support ===
+            if not added_df.empty and not removed_df.empty:
+                merge_cols_chp = ['id_support', 'operateur', 'technologie', 'adresse0', 'adresse1', 'adresse2', 'adresse3', 'code_insee', 'coordonnees']
+                available_cols_chp = [col for col in merge_cols_chp if col in added_df.columns and col in removed_df.columns]
+                
+                if (available_cols_chp == merge_cols_chp and 
+                    'proprietaire_support' in removed_df.columns and 
+                    'proprietaire_support' in added_df.columns):
+                    
+                    removed_chp = removed_df[available_cols_chp + ['proprietaire_support']].copy()
+                    added_chp = added_df[available_cols_chp + ['proprietaire_support']].copy()
+                    removed_chp['_idx_rem'] = removed_df.index
+                    added_chp['_idx_add'] = added_df.index
+                    
+                    matched_chp = pd.merge(removed_chp, added_chp, on=available_cols_chp, how='inner', suffixes=('_rem', '_add'))
+                    
+                    if not matched_chp.empty:
+                        # Normaliser les valeurs avant comparaison
+                        prop_rem = matched_chp['proprietaire_support_rem'].fillna('').astype(str).str.strip()
+                        prop_add = matched_chp['proprietaire_support_add'].fillna('').astype(str).str.strip()
+                        prop_diff_mask = prop_rem != prop_add
+                        
+                        matched_chp_filtered = matched_chp[prop_diff_mask].copy()
+                        
+                        if not matched_chp_filtered.empty:
+                            idx_rem = matched_chp_filtered['_idx_rem'].tolist()
+                            idx_add = matched_chp_filtered['_idx_add'].tolist()
+                            # Éviter les doublons
+                            idx_rem = [i for i in idx_rem if i not in indices_to_remove_removed]
+                            idx_add = [i for i in idx_add if i not in indices_to_remove_added]
+                            
+                            if idx_add and idx_rem:
+                                indices_to_remove_removed.extend(idx_rem)
+                                indices_to_remove_added.extend(idx_add)
+                                
+                                change_df = added_df.loc[idx_add].copy()
+                                change_df['source'] = 'comp_change.csv'
+                                change_df['action'] = 'CHP'
+                                
+                                # Convertir et ajouter les anciens propriétaires
+                                old_props = []
+                                for idx_r in idx_rem:
+                                    try:
+                                        prop_val = removed_df.loc[idx_r, 'proprietaire_support']
+                                        if pd.isna(prop_val) or str(prop_val).strip() == '':
+                                            old_props.append("Inconnu")
+                                            continue
+                                        
+                                        prop_str = str(prop_val).strip()
+                                        if prop_str.replace('.','').replace('-','').isdigit():
+                                            prop_int = int(float(prop_str))
+                                            prop_converted = CORRESPONDANCES_PROPRIETAIRE_SUPPORT.get(prop_int, "Inconnu")
+                                        else:
+                                            prop_converted = "Inconnu"
+                                    except:
+                                        prop_converted = "Inconnu"
+                                    old_props.append(prop_converted)
+                                
+                                change_df['old_proprietaire_support'] = old_props
+                                change_dfs['CHP'] = change_df
+                                functions_anfr.log_message(f"Détecté {len(change_df)} changements CHP.")
+            
+            # === Détection de CHH: changement de hauteur de support ===
+            if not added_df.empty and not removed_df.empty:
+                merge_cols_chh = ['id_support', 'operateur', 'technologie', 'adresse0', 'adresse1', 'adresse2', 'adresse3', 'code_insee', 'coordonnees']
+                available_cols_chh = [col for col in merge_cols_chh if col in added_df.columns and col in removed_df.columns]
+                
+                if (available_cols_chh == merge_cols_chh and 
+                    'hauteur_support' in removed_df.columns and 
+                    'hauteur_support' in added_df.columns):
+                    
+                    removed_chh = removed_df[available_cols_chh + ['hauteur_support']].copy()
+                    added_chh = added_df[available_cols_chh + ['hauteur_support']].copy()
+                    removed_chh['_idx_rem'] = removed_df.index
+                    added_chh['_idx_add'] = added_df.index
+                    
+                    matched_chh = pd.merge(removed_chh, added_chh, on=available_cols_chh, how='inner', suffixes=('_rem', '_add'))
+                    
+                    if not matched_chh.empty:
+                        # Normaliser et comparer les hauteurs
+                        hauteur_rem = matched_chh['hauteur_support_rem'].fillna('0').astype(str).str.strip()
+                        hauteur_add = matched_chh['hauteur_support_add'].fillna('0').astype(str).str.strip()
+                        hauteur_diff_mask = hauteur_rem != hauteur_add
+                        
+                        matched_chh_filtered = matched_chh[hauteur_diff_mask].copy()
+                        
+                        if not matched_chh_filtered.empty:
+                            idx_rem = matched_chh_filtered['_idx_rem'].tolist()
+                            idx_add = matched_chh_filtered['_idx_add'].tolist()
+                            # Éviter les doublons
+                            idx_rem = [i for i in idx_rem if i not in indices_to_remove_removed]
+                            idx_add = [i for i in idx_add if i not in indices_to_remove_added]
+                            
+                            if idx_add and idx_rem:
+                                indices_to_remove_removed.extend(idx_rem)
+                                indices_to_remove_added.extend(idx_add)
+                                
+                                change_df = added_df.loc[idx_add].copy()
+                                change_df['source'] = 'comp_change.csv'
+                                change_df['action'] = 'CHH'
+                                
+                                # Ajouter les anciennes hauteurs (format avec virgule et 'm')
+                                old_hauteurs = []
+                                for idx_r in idx_rem:
+                                    h_val = removed_df.loc[idx_r, 'hauteur_support']
+                                    h_str = str(h_val) if pd.notna(h_val) else '0'
+                                    h_formatted = f"{h_str.replace('.', ',')}m"
+                                    old_hauteurs.append(h_formatted)
+                                
+                                change_df['old_hauteur_support'] = old_hauteurs
+                                change_dfs['CHH'] = change_df
+                                functions_anfr.log_message(f"Détecté {len(change_df)} changements CHH.")
+
             # Retirer les doublons d'indices
             indices_to_remove_added = list(set(indices_to_remove_added))
             indices_to_remove_removed = list(set(indices_to_remove_removed))
@@ -667,36 +926,54 @@ class OptimizedProcessor:
             for df in all_dfs:
                 if not df.empty:
                     df['action'] = self.determine_action_vectorized(df)
-                    # Initialiser les colonnes de changement (seront remplies pour CHA/CHI/CHL)
-                    df['old_address'] = None
-                    df['old_id_support'] = None
-                    df['old_coordonnees'] = None
+                    # Initialiser la colonne infos (vide par défaut)
+                    df['infos'] = None
             
             # Ajouter les changements détectés à la liste
             for change_type, change_df in change_dfs.items():
                 if not change_df.empty:
-                    # S'assurer que toutes les colonnes de changement existent
-                    for col in ['old_address', 'old_id_support', 'old_coordonnees']:
-                        if col not in change_df.columns:
-                            change_df[col] = None
+                    # Remplir la colonne infos selon le type de changement
+                    if change_type == 'CHA':
+                        change_df['infos'] = change_df['old_address']
+                    elif change_type == 'CHI':
+                        change_df['infos'] = change_df['old_id_support']
+                    elif change_type == 'CHL':
+                        change_df['infos'] = change_df['old_coordonnees']
+                    elif change_type == 'CHT':
+                        change_df['infos'] = change_df['old_type_support']
+                    elif change_type == 'CHP':
+                        change_df['infos'] = change_df['old_proprietaire_support']
+                    elif change_type == 'CHH':
+                        change_df['infos'] = change_df['old_hauteur_support']
+                    
+                    # Vider la colonne technologie pour tous les changements
+                    change_df['technologie'] = ''
+                    
+                    # NE PAS SUPPRIMER les colonnes old_* ICI
+                    # Elles seront supprimées après la concaténation
+                    
                     all_dfs.append(change_df)
             
             # Concaténation
             final_df = pd.concat([df for df in all_dfs if not df.empty], ignore_index=True)
             
-            # S'assurer que les colonnes de changement existent après concaténation
-            for col in ['old_address', 'old_id_support', 'old_coordonnees']:
-                if col not in final_df.columns:
-                    final_df[col] = None
+            # S'assurer que la colonne infos existe après concaténation
+            if 'infos' not in final_df.columns:
+                final_df['infos'] = None
+            
+            # AJOUT : Supprimer les colonnes temporaires old_* APRÈS concaténation
+            old_cols_to_drop = [
+                'old_address', 'old_id_support', 'old_coordonnees',
+                'old_type_support', 'old_proprietaire_support', 'old_hauteur_support'
+            ]
+            final_df = final_df.drop(columns=old_cols_to_drop, errors='ignore')
             
             # Uniformisation des colonnes avec combine_first vectorisé
-            # Gérer les colonnes avec suffixes _x et _y
+            # Gérer les colonnes avec suffixes _x et _y seulement si elles existent
+            # Pour type_support, hauteur_support, proprietaire_support : elles existent déjà sans suffixe
             combine_cols = {
-                'type_support': ['type_support_x', 'type_support_y'],
-                'hauteur_support': ['hauteur_support_x', 'hauteur_support_y'],
-                'proprietaire_support': ['proprietaire_support_x', 'proprietaire_support_y'],
                 'date_activ': ['date_activ_x', 'date_activ_y'],
-                'statut': ['statut_x', 'statut_y']  # Ajout de statut aussi
+                'statut': ['statut_x', 'statut_y']
             }
             
             for target, sources in combine_cols.items():
@@ -709,6 +986,11 @@ class OptimizedProcessor:
                 else:
                     # Si aucune colonne n'existe, créer une colonne vide
                     final_df[target] = None
+            
+            # Vérifier que les colonnes type_support, hauteur_support et proprietaire_support existent
+            for col in ['type_support', 'hauteur_support', 'proprietaire_support']:
+                if col not in final_df.columns:
+                    final_df[col] = None
             
             # Mise à jour des adresses vectorisée
             final_df['adresse'] = self.maj_addr_vectorized(final_df)
@@ -723,32 +1005,25 @@ class OptimizedProcessor:
                 'hauteur_support': 'first',
                 'proprietaire_support': 'first',
                 'date_activ': 'first',
-                'action': 'first',  # Ajouter action pour accès dans le post-traitement
-                'old_address': 'first',  # Ajouter les colonnes de changement
-                'old_id_support': 'first',
-                'old_coordonnees': 'first'
+                'action': 'first',
+                'infos': 'first'  # Ajout de la colonne infos
             }
             
             final_df = (final_df.groupby(['id_support', 'operateur', 'action'], as_index=False)
                        .agg(agg_dict))
             
-            # Post-traitement du champ technologie pour intégrer les changements CHA/CHI/CHL
-            final_df['technologie'] = final_df.apply(
-                lambda row: self.format_technology_with_changes(
-                    self.sort_technologies_optimized(row['technologie']),
-                    row.get('old_address') if row.get('action') == 'CHA' else (
-                        row.get('old_id_support') if row.get('action') == 'CHI' else (
-                            row.get('old_coordonnees') if row.get('action') == 'CHL' else None
-                        )
-                    ),
-                    row.get('action', '')
-                ) if row.get('action') in ['CHA', 'CHI', 'CHL'] 
-                else self.sort_technologies_optimized(row['technologie']),
-                axis=1
-            )
+            # Post-traitement du champ technologie
+            # Pour CHA/CHI/CHL : vider la technologie (déjà fait avant, mais on s'assure)
+            # Pour les autres actions : trier les technologies normalement
+            mask_change = final_df['action'].isin(['CHA', 'CHI', 'CHL', 'CHT', 'CHP', 'CHH'])
             
-            # Nettoyage des colonnes de changement (ne sont plus utiles)
-            final_df = final_df.drop(columns=['old_address', 'old_id_support', 'old_coordonnees'], errors='ignore')
+            # Vider la technologie pour les changements
+            final_df.loc[mask_change, 'technologie'] = ''
+            
+            # Trier les technologies pour les autres actions
+            final_df.loc[~mask_change, 'technologie'] = final_df.loc[~mask_change, 'technologie'].apply(
+                self.sort_technologies_optimized
+            )
             
             # Transformations des supports avec map vectorisé
             final_df['type_support'] = (final_df['type_support'].fillna("Inconnu")
