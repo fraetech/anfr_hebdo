@@ -205,14 +205,28 @@ class OptimizedProcessor:
             # Fallback si action n'est pas déjà définie
             result.loc[mask_cha] = 'CHA'
         
-        # AJO ou ALL pour comp_added
+        # ==========================
+        # AJO / ALL / AJA
+        # ==========================
+
         mask_ajo = df['source'] == 'comp_added.csv'
 
-        # Cas spécifiques : si statut_y est "En service" ou "Techniquement opérationnel"
-        mask_act = mask_ajo & df['statut_y'].isin(["En service", "Techniquement opérationnel"])
+        mask_activation = (
+            mask_ajo &
+            df['statut_y'].isin([
+                "En service",
+                "Techniquement opérationnel"
+            ])
+        )
 
-        result.loc[mask_act] = 'ALL'
-        result.loc[mask_ajo & ~mask_act] = 'AJO'
+        # Ajout + activation
+        result.loc[mask_activation] = 'AJA'
+
+        # Ajout seul
+        result.loc[
+            mask_ajo &
+            ~mask_activation
+        ] = 'AJO'
 
         
         # SUP pour comp_removed
