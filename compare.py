@@ -250,49 +250,123 @@ def write_results(df, file_path, message):
     except IOError as e:
         functions_anfr.log_message(f"Impossible d'écrire dans le fichier '{file_path}' - {e}", "ERROR")
 
-def main(no_file_update, no_download, no_compare, no_write, old_csv_name, new_csv_name, timestamp_a, debug, update_type):
+def main(no_file_update, no_download, no_compare, no_write,
+         old_csv_name, new_csv_name, timestamp_a,
+         debug, update_type):
+
     path_app = os.path.dirname(os.path.abspath(__file__))
     download_path = os.path.join(path_app, 'files', 'from_anfr')
-    url = "https://data.anfr.fr/d4c/api/records/2.0/downloadfile/format=csv&resource_id=88ef0887-6b0f-4d3f-8545-6d64c8f597da&use_labels_for_header=true"
 
-    # Initialiser les variables
+    url = (
+        "https://data.anfr.fr/d4c/api/records/2.0/downloadfile/"
+        "format=csv&resource_id=88ef0887-6b0f-4d3f-8545-6d64c8f597da"
+        "&use_labels_for_header=true"
+    )
+
+    # Initialisation
     curr_csv_path = None
     old_csv_path = None
     current_csv_path = None
     timestamp = None
 
-    if not no_download and not new_csv_name:
-        filename_from_anfr = functions_anfr.get_filename_from_server(url)
-        download_path_r = os.path.join(download_path, filename_from_anfr)
-        functions_anfr.log_message("Début du téléchargement du fichier de data.anfr.fr")
-        curr_csv_path = download_data(url, download_path_r)
-        functions_anfr.log_message("Téléchargement terminé")
-    else:
-        if no_download and not new_csv_name:
-            functions_anfr.log_message("Téléchargement sauté : demandé par argument", "WARN")
-            curr_csv_path = None
-        elif new_csv_name:
-            curr_csv_path = os.path.join(download_path, new_csv_name)
-            functions_anfr.log_message(f"Vous forcez la MAJ avec le current_csv : {curr_csv_path}", "INFO")
+    # ==========================
+    # MODE FORÇAGE COMPLET
+    # ==========================
+    if old_csv_name and new_csv_name:
 
-    if not no_file_update and not old_csv_name:
-        if curr_csv_path:
-            old_csv_path, current_csv_path, timestamp = csv_files_update(curr_csv_path, update_type)
-            functions_anfr.log_message(f"Comparaison entre {old_csv_path} et {current_csv_path}")
+        old_csv_path = os.path.join(download_path, old_csv_name)
+        current_csv_path = os.path.join(download_path, new_csv_name)
+
+        # Pour compatibilité avec le reste du script
+        curr_csv_path = current_csv_path
+
+        timestamp = (
+            str(timestamp_a).strip('"')
+            if timestamp_a
+            else "28/12/2025 à 12:00:00"
+        )
+
+        functions_anfr.log_message(
+            f"Vous forcez la MAJ avec le old_csv : {old_csv_path}",
+            "INFO"
+        )
+
+        functions_anfr.log_message(
+            f"Vous forcez la MAJ avec le new_csv : {current_csv_path}",
+            "INFO"
+        )
+
+        functions_anfr.log_message(
+            f"Vous forcez la MAJ avec le timestamp : {timestamp}",
+            "INFO"
+        )
+
     else:
-        if old_csv_name and new_csv_name:
-            # Mode forçage complet
-            current_csv_path = os.path.join(download_path, new_csv_name)
-            old_csv_path = os.path.join(download_path, old_csv_name)
-            timestamp = str(timestamp_a).strip('\"') if timestamp_a else "28/12/2025 à 12:00:00"
-            functions_anfr.log_message(f"Vous forcez la MAJ avec le old_csv : {old_csv_path}", "INFO")
-            functions_anfr.log_message(f"Vous forcez la MAJ avec le new_csv : {current_csv_path}", "INFO")
-            functions_anfr.log_message(f"Vous forcez la MAJ avec le timestamp : {timestamp}", "INFO")
-        elif no_file_update:
+
+        # ==========================
+        # TELECHARGEMENT
+        # ==========================
+        if not no_download:
+
+            filename_from_anfr = functions_anfr.get_filename_from_server(url)
+
+            download_path_r = os.path.join(
+                download_path,
+                filename_from_anfr
+            )
+
+            functions_anfr.log_message(
+                "Début du téléchargement du fichier de data.anfr.fr"
+            )
+
+            curr_csv_path = download_data(
+                url,
+                download_path_r
+            )
+
+            functions_anfr.log_message(
+                "Téléchargement terminé"
+            )
+
+        else:
+            functions_anfr.log_message(
+                "Téléchargement sauté : demandé par argument",
+                "WARN"
+            )
+
+        # ==========================
+        # SELECTION CSV
+        # ==========================
+        if not no_file_update:
+
+            if curr_csv_path:
+
+                old_csv_path, current_csv_path, timestamp = (
+                    csv_files_update(
+                        curr_csv_path,
+                        update_type
+                    )
+                )
+
+                functions_anfr.log_message(
+                    f"Comparaison entre "
+                    f"{old_csv_path} "
+                    f"et "
+                    f"{current_csv_path}"
+                )
+
+        else:
+
             current_csv_path = curr_csv_path
+
             timestamp = "15/12/2020 à 13:37:37"
-            functions_anfr.log_message(f"Mise à jour des fichiers CSV sautée : vous n'irez pas loin ainsi...", "ERROR")
-            
+
+            functions_anfr.log_message(
+                "Mise à jour des fichiers CSV sautée : "
+                "vous n'irez pas loin ainsi...",
+                "ERROR"
+            )
+
     start_time = time.time()
 
     if not no_compare:
