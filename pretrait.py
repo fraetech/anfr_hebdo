@@ -7,7 +7,7 @@ import re
 import functions_anfr
 import numpy as np
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import lru_cache
 from typing import Dict, Set, Tuple, Optional, List
 
@@ -30,6 +30,8 @@ try:
 except (FileNotFoundError, IndexError) as e:
     functions_anfr.log_message(f"Erreur lecture timestamp: {e}", "FATAL")
     raise SystemExit(1)
+
+ACTIVATION_LIMIT_DATE = (datetime.strptime(TIMESTAMP, "%d/%m/%Y à %H:%M:%S")-timedelta(days=28)).strftime("%Y-%m-%d")
 
 # Dictionnaires de correspondance optimisés
 CORRESPONDANCES_TYPE_SUPPORT = {
@@ -219,8 +221,17 @@ class OptimizedProcessor:
             ])
         )
 
-        # Ajout + activation
-        result.loc[mask_activation] = 'AJA'
+        mask_activation_rt = (
+            mask_activation &
+            df['date_activ_y'].notna() &
+            (df['date_activ_y'] < ACTIVATION_LIMIT_DATE)
+        )
+
+        result.loc[mask_activation_rt] = 'AJR'
+        result.loc[
+            mask_activation &
+            ~mask_activation_rt
+        ] = 'AJA'
 
         # Ajout seul
         result.loc[
@@ -264,10 +275,18 @@ class OptimizedProcessor:
                 (statut_y == 'Projet approuvé') &
                 (date_activ_x != date_activ_y)
             )
+
+            cond_art = (
+                (statut_x == 'Projet approuvé') &
+                (statut_y.isin(['Techniquement opérationnel', 'En service'])) &
+                date_activ_y.notna() &
+                (date_activ_y < ACTIVATION_LIMIT_DATE)
+            )
             
             cond_all = (
-                (statut_x == 'Projet approuvé') & 
-                (statut_y.isin(['Techniquement opérationnel', 'En service']))
+                (statut_x == 'Projet approuvé') &
+                (statut_y.isin(['Techniquement opérationnel', 'En service'])) &
+                ~cond_art
             )
             
             cond_ext = (
@@ -279,10 +298,11 @@ class OptimizedProcessor:
             mod_indices = mod_df.index
             result.loc[mod_indices[cond_aav]] = 'AAV'
             result.loc[mod_indices[cond_all & ~cond_aav]] = 'ALL'
+            result.loc[mod_indices[cond_art & ~cond_aav]] = 'ART'
             result.loc[mod_indices[cond_ext & ~cond_aav & ~cond_all]] = 'EXT'
         
         return result.fillna("UNKNOWN")
-    
+
     def extract_tech_dict_optimized(self, df: pd.DataFrame) -> Dict[Tuple[str, str], Set[str]]:
         """Version optimisée d'extract_tech_dict."""
         df_clean = df.dropna(subset=["sup_id", "adm_lb_nom", "emr_lb_systeme"])
