@@ -141,7 +141,7 @@ class OptimizedProcessor:
             functions_anfr.log_message("Colonne code_insee manquante", "WARN")
             return (addr_parts + ' 00404 ERR CONV INSEE').str.upper()
     
-    def preprocess_csv_optimized(self, file_path: str, source: str) -> pd.DataFrame:
+    def preprocess_csv_optimized(self, file_path: str, source: str, sep: str) -> pd.DataFrame:
         """Version optimisée du chargement CSV."""
         
         try:
@@ -157,16 +157,15 @@ class OptimizedProcessor:
             suffixed_cols = [
                 'statut_y', 'date_activ_y'
             ]
-            
-            sep = detect_separator(OLD_CSV_PATH)
-            df_sample = pd.read_csv(OLD_CSV_PATH, on_bad_lines="skip", dtype=str, sep=sep, engine='c')
+
+            df_sample = pd.read_csv(file_path, on_bad_lines="skip", dtype=str, sep=sep, engine='c')
             available_cols = df_sample.columns.tolist()
             
             # Prendre les colonnes de base disponibles + les colonnes avec suffixe disponibles
             usecols = [col for col in base_cols + suffixed_cols if col in available_cols]
             
             # Chargement avec les colonnes disponibles seulement
-            df = pd.read_csv(OLD_CSV_PATH, on_bad_lines="skip", dtype=str, sep=sep, engine='c')
+            df = pd.read_csv(file_path, on_bad_lines="skip", dtype=str, sep=sep, engine='c')
             df['source'] = source
             
             functions_anfr.log_message(f"Chargement du fichier '{file_path}' terminé avec succès.")
@@ -488,10 +487,10 @@ class OptimizedProcessor:
         """Version optimisée de merge_and_process."""
         try:
             # Chargement optimisé des fichiers
-            added_df = self.preprocess_csv_optimized(added_path, 'comp_added.csv')
-            modified_df = self.preprocess_csv_optimized(modified_path, 'comp_modified.csv')
-            removed_df = self.preprocess_csv_optimized(removed_path, 'comp_removed.csv')
-            
+            added_df = self.preprocess_csv_optimized(added_path, 'comp_added.csv', sep=',')
+            modified_df = self.preprocess_csv_optimized(modified_path, 'comp_modified.csv', sep=',')
+            removed_df = self.preprocess_csv_optimized(removed_path, 'comp_removed.csv', sep=',')
+
             if added_df.empty and modified_df.empty and removed_df.empty:
                 functions_anfr.log_message("Tous les fichiers sont vides.", "FATAL")
                 raise SystemExit(1)
@@ -1170,8 +1169,8 @@ def main(no_insee, no_process, debug):
         functions_anfr.log_message(f"✓ {os.path.basename(OLD_CSV_PATH)} chargé ({len(df_old):,} lignes)", "INFO")
         
         functions_anfr.log_message(f"Chargement de {os.path.basename(NEW_CSV_PATH)}...", "INFO")
-        sep_n = detect_separator(OLD_CSV_PATH)
-        df_new = pd.read_csv(OLD_CSV_PATH, on_bad_lines="skip", dtype=str, sep=sep_n, engine='c')
+        sep_n = detect_separator(NEW_CSV_PATH)
+        df_new = pd.read_csv(NEW_CSV_PATH, on_bad_lines="skip", dtype=str, sep=sep_n, engine='c')
         functions_anfr.log_message(f"✓ {os.path.basename(NEW_CSV_PATH)} chargé ({len(df_new):,} lignes)", "INFO")
         
         # Vérifier les colonnes nécessaires pour tech extraction
