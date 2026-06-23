@@ -6,6 +6,7 @@ import csv
 import re
 import functions_anfr
 import numpy as np
+import math
 from collections import defaultdict
 from datetime import datetime, timedelta
 from functools import lru_cache
@@ -142,6 +143,7 @@ class OptimizedProcessor:
     
     def preprocess_csv_optimized(self, file_path: str, source: str) -> pd.DataFrame:
         """Version optimisée du chargement CSV."""
+        
         try:
             # Colonnes de base toujours présentes
             base_cols = [
@@ -156,15 +158,15 @@ class OptimizedProcessor:
                 'statut_y', 'date_activ_y'
             ]
             
-            # Charger d'abord avec toutes les colonnes pour voir ce qui existe
-            df_sample = pd.read_csv(file_path, nrows=0, sep=None, engine='python')
+            sep = detect_separator(OLD_CSV_PATH)
+            df_sample = pd.read_csv(OLD_CSV_PATH, on_bad_lines="skip", dtype=str, sep=sep, engine='c')
             available_cols = df_sample.columns.tolist()
             
             # Prendre les colonnes de base disponibles + les colonnes avec suffixe disponibles
             usecols = [col for col in base_cols + suffixed_cols if col in available_cols]
             
             # Chargement avec les colonnes disponibles seulement
-            df = pd.read_csv(file_path, usecols=usecols, dtype=str, na_filter=True, sep=None, engine='python')
+            df = pd.read_csv(OLD_CSV_PATH, on_bad_lines="skip", dtype=str, sep=sep, engine='c')
             df['source'] = source
             
             functions_anfr.log_message(f"Chargement du fichier '{file_path}' terminé avec succès.")
@@ -258,16 +260,10 @@ class OptimizedProcessor:
                 result.loc[mask_mod] = "UNKNOWN"
                 return result.fillna("UNKNOWN")
             
-            # Normalisation des dates avec gestion sécurisée
-            for col in ['date_activ_x', 'date_activ_y']:
-                mod_df[col] = mod_df[col].fillna('').astype(str).str.strip()
-                mod_df[col] = mod_df[col].replace('', None)
-            
-            # Remplacer les valeurs NaN par des chaînes vides pour éviter les erreurs .isin()
-            statut_x = mod_df['statut_x'].fillna('')
-            statut_y = mod_df['statut_y'].fillna('')
-            date_activ_x = mod_df['date_activ_x'].fillna('')
-            date_activ_y = mod_df['date_activ_y'].fillna('')
+            statut_x = mod_df['statut_x']
+            statut_y = mod_df['statut_y']
+            date_activ_x = mod_df['date_activ_x']
+            date_activ_y = mod_df['date_activ_y']
             
             # Conditions vectorisées avec gestion sécurisée des NaN
             cond_aav = (
@@ -308,13 +304,16 @@ class OptimizedProcessor:
         df_clean = df.dropna(subset=["sup_id", "adm_lb_nom", "emr_lb_systeme"])
         if df_clean.empty:
             return {}
+
+        result = defaultdict(set)
+        for sup_id, oper, tech in zip(
+            df_clean["sup_id"],
+            df_clean["adm_lb_nom"],
+            df_clean["emr_lb_systeme"]
+        ):
+            result[(sup_id, oper)].add(tech)
         
-        # Groupby optimisé avec transformation directe
-        grouped = (df_clean.groupby(["sup_id", "adm_lb_nom"])["emr_lb_systeme"]
-                  .apply(lambda x: frozenset(x.unique()))
-                  .to_dict())
-        
-        return {k: set(v) for k, v in grouped.items()}
+        return dict(result)
     
     def format_technology_with_changes(self, techs_str: str, old_value: Optional[str], change_type: str) -> str:
         """Formate le champ technologie en intégrant les anciennes valeurs pour CHA/CHI/CHL.
@@ -521,7 +520,6 @@ class OptimizedProcessor:
                 Utilise la formule de Haversine simplifiée"""
                 if lat1 is None or lat2 is None:
                     return None
-                import math
                 R = 6371000  # Rayon terrestre en mètres
                 dlat = math.radians(lat2 - lat1)
                 dlon = math.radians(lon2 - lon1)
@@ -1140,6 +1138,15 @@ class OptimizedProcessor:
         except Exception as e:
             functions_anfr.log_message(f"Échec lors du traitement des fichiers - {e}", "FATAL")
             raise SystemExit(1)
+        
+def detect_separator(file_path: str) -> str:
+        """Détecte le séparateur CSV sur la première ligne uniquement."""
+        with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+            first_line = f.readline()
+        for sep in (';', ','):
+            if sep in first_line:
+                return sep
+        return ','  # fallback
 
 
 def main(no_insee, no_process, debug):
@@ -1158,11 +1165,13 @@ def main(no_insee, no_process, debug):
     try:
         # Chargement complet pour extract_tech_dict et build_new_status_map
         functions_anfr.log_message(f"Chargement de {os.path.basename(OLD_CSV_PATH)}...", "INFO")
-        df_old = pd.read_csv(OLD_CSV_PATH, on_bad_lines="skip", dtype=str, sep=None, engine='python')
+        sep_o = detect_separator(OLD_CSV_PATH)
+        df_old = pd.read_csv(OLD_CSV_PATH, on_bad_lines="skip", dtype=str, sep=sep_o, engine='c')
         functions_anfr.log_message(f"✓ {os.path.basename(OLD_CSV_PATH)} chargé ({len(df_old):,} lignes)", "INFO")
         
         functions_anfr.log_message(f"Chargement de {os.path.basename(NEW_CSV_PATH)}...", "INFO")
-        df_new = pd.read_csv(NEW_CSV_PATH, on_bad_lines="skip", dtype=str, sep=None, engine='python')
+        sep_n = detect_separator(OLD_CSV_PATH)
+        df_new = pd.read_csv(OLD_CSV_PATH, on_bad_lines="skip", dtype=str, sep=sep_n, engine='c')
         functions_anfr.log_message(f"✓ {os.path.basename(NEW_CSV_PATH)} chargé ({len(df_new):,} lignes)", "INFO")
         
         # Vérifier les colonnes nécessaires pour tech extraction
