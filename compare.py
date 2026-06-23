@@ -134,7 +134,8 @@ def rename_old_file(old_path, new_path):
 
 def load_and_process_csv(file_path):
     try:
-        df = pd.read_csv(file_path, sep=None, engine='python')
+        sep = functions_anfr.detect_separator(file_path)
+        df = pd.read_csv(file_path, sep=sep, engine='c', on_bad_lines='skip', dtype=str)
         df = df[['adm_lb_nom', 'sup_id', 'emr_lb_systeme', 'nat_id', 'sup_nm_haut', 'tpo_id', 'adr_lb_lieu', 'adr_lb_add1', 'adr_lb_add2', 'adr_lb_add3', 'com_cd_insee', 'coordonnees', 'statut', 'emr_dt']]
         df = df.rename(columns={
             'adm_lb_nom': 'operateur',
@@ -158,7 +159,9 @@ def load_and_process_csv(file_path):
         df['code_insee'] = df['code_insee'].astype(str).str.zfill(5)
         
         # Normaliser coordonnees: format "lat , lon" avec espaces consistants
-        df['coordonnees'] = df['coordonnees'].astype(str).str.replace(r'\s*,\s*', ' , ', regex=True)
+        df['coordonnees'] = (df['coordonnees'].astype(str)
+                            .str.split(r'\s*,\s*', regex=True)
+                            .str.join(' , '))
         
         return df
     except FileNotFoundError:
@@ -207,27 +210,17 @@ def compare_data(df_old, df_current):
         # Lignes supprimées (présentes seulement dans l'ancien CSV)
         df_removed = df_merged[df_merged['statut_last'].isna()]
         
-        def dates_significantly_different(old_date, new_date):
-            if pd.isna(old_date) != pd.isna(new_date):
-                return True
-            if pd.isna(old_date) and pd.isna(new_date):
-                return False
-            try:
-                return str(old_date).strip() != str(new_date).strip()
-            except:
-                return old_date != new_date
-        
-        # Condition pour les modifications de date_activ : uniquement si statut reste "Projet approuvé"
-        def date_activ_changed_for_projet_approuve(row):
-            return (row['statut_old'] == 'Projet approuvé' and 
-                    row['statut_last'] == 'Projet approuvé' and
-                    dates_significantly_different(row['date_activ_old'], row['date_activ_last']))
-        
         # Lignes modifiées : soit le statut a changé, soit la date_activ a changé pour les "Projet approuvé"
-        df_modified = df_merged[
-            (df_merged['statut_old'] != df_merged['statut_last']) | 
-            df_merged.apply(date_activ_changed_for_projet_approuve, axis=1)
-        ]
+        mask_statut = df_merged['statut_old'] != df_merged['statut_last']
+
+        mask_date = (
+            (df_merged['statut_old'] == 'Projet approuvé') &
+            (df_merged['statut_last'] == 'Projet approuvé') &
+            (df_merged['date_activ_old'].fillna('').astype(str).str.strip() !=
+            df_merged['date_activ_last'].fillna('').astype(str).str.strip())
+        )
+
+        df_modified = df_merged[mask_statut | mask_date]
         
         # Supprimer les lignes ajoutées et supprimées des modifications
         df_modified = df_modified.drop(df_removed.index)

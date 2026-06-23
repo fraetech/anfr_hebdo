@@ -1137,15 +1137,6 @@ class OptimizedProcessor:
         except Exception as e:
             functions_anfr.log_message(f"Échec lors du traitement des fichiers - {e}", "FATAL")
             raise SystemExit(1)
-        
-def detect_separator(file_path: str) -> str:
-        """Détecte le séparateur CSV sur la première ligne uniquement."""
-        with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-            first_line = f.readline()
-        for sep in (';', ','):
-            if sep in first_line:
-                return sep
-        return ','  # fallback
 
 
 def main(no_insee, no_process, debug):
@@ -1164,12 +1155,12 @@ def main(no_insee, no_process, debug):
     try:
         # Chargement complet pour extract_tech_dict et build_new_status_map
         functions_anfr.log_message(f"Chargement de {os.path.basename(OLD_CSV_PATH)}...", "INFO")
-        sep_o = detect_separator(OLD_CSV_PATH)
+        sep_o = functions_anfr.detect_separator(OLD_CSV_PATH)
         df_old = pd.read_csv(OLD_CSV_PATH, on_bad_lines="skip", dtype=str, sep=sep_o, engine='c')
         functions_anfr.log_message(f"✓ {os.path.basename(OLD_CSV_PATH)} chargé ({len(df_old):,} lignes)", "INFO")
         
         functions_anfr.log_message(f"Chargement de {os.path.basename(NEW_CSV_PATH)}...", "INFO")
-        sep_n = detect_separator(NEW_CSV_PATH)
+        sep_n = functions_anfr.detect_separator(NEW_CSV_PATH)
         df_new = pd.read_csv(NEW_CSV_PATH, on_bad_lines="skip", dtype=str, sep=sep_n, engine='c')
         functions_anfr.log_message(f"✓ {os.path.basename(NEW_CSV_PATH)} chargé ({len(df_new):,} lignes)", "INFO")
         
