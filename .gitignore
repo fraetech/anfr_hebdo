@@ -1,7 +1,6 @@
-.env    
-*.html
+.env
 *.csv
 !files/cc_insee/cc_insee.csv
-/maj_hebdo
 *.pyc
-files/compared/timestamp.txt
+files/pretraite/*.txt
+files/compared/*.txt
