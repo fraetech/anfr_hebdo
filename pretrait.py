@@ -6,8 +6,9 @@ import csv
 import re
 import functions_anfr
 import numpy as np
+import math
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import lru_cache
 from typing import Dict, Set, Tuple, Optional, List
 
@@ -30,6 +31,8 @@ try:
 except (FileNotFoundError, IndexError) as e:
     functions_anfr.log_message(f"Erreur lecture timestamp: {e}", "FATAL")
     raise SystemExit(1)
+
+ACTIVATION_LIMIT_DATE = (datetime.strptime(TIMESTAMP, "%d/%m/%Y à %H:%M:%S")-timedelta(days=28)).strftime("%Y-%m-%d")
 
 # Dictionnaires de correspondance optimisés
 CORRESPONDANCES_TYPE_SUPPORT = {
@@ -138,8 +141,9 @@ class OptimizedProcessor:
             functions_anfr.log_message("Colonne code_insee manquante", "WARN")
             return (addr_parts + ' 00404 ERR CONV INSEE').str.upper()
     
-    def preprocess_csv_optimized(self, file_path: str, source: str) -> pd.DataFrame:
+    def preprocess_csv_optimized(self, file_path: str, source: str, sep: str) -> pd.DataFrame:
         """Version optimisée du chargement CSV."""
+        
         try:
             # Colonnes de base toujours présentes
             base_cols = [
@@ -153,16 +157,15 @@ class OptimizedProcessor:
             suffixed_cols = [
                 'statut_y', 'date_activ_y'
             ]
-            
-            # Charger d'abord avec toutes les colonnes pour voir ce qui existe
-            df_sample = pd.read_csv(file_path, nrows=0, sep=None, engine='python')
+
+            df_sample = pd.read_csv(file_path, on_bad_lines="skip", dtype=str, sep=sep, engine='c')
             available_cols = df_sample.columns.tolist()
             
             # Prendre les colonnes de base disponibles + les colonnes avec suffixe disponibles
             usecols = [col for col in base_cols + suffixed_cols if col in available_cols]
             
             # Chargement avec les colonnes disponibles seulement
-            df = pd.read_csv(file_path, usecols=usecols, dtype=str, na_filter=True, sep=None, engine='python')
+            df = pd.read_csv(file_path, on_bad_lines="skip", dtype=str, sep=sep, engine='c')
             df['source'] = source
             
             functions_anfr.log_message(f"Chargement du fichier '{file_path}' terminé avec succès.")
@@ -205,14 +208,37 @@ class OptimizedProcessor:
             # Fallback si action n'est pas déjà définie
             result.loc[mask_cha] = 'CHA'
         
-        # AJO ou ALL pour comp_added
+        # ==========================
+        # AJO / ALL / AJA
+        # ==========================
+
         mask_ajo = df['source'] == 'comp_added.csv'
 
-        # Cas spécifiques : si statut_y est "En service" ou "Techniquement opérationnel"
-        mask_act = mask_ajo & df['statut_y'].isin(["En service", "Techniquement opérationnel"])
+        mask_activation = (
+            mask_ajo &
+            df['statut_y'].isin([
+                "En service",
+                "Techniquement opérationnel"
+            ])
+        )
 
-        result.loc[mask_act] = 'ALL'
-        result.loc[mask_ajo & ~mask_act] = 'AJO'
+        mask_activation_rt = (
+            mask_activation &
+            df['date_activ_y'].notna() &
+            (df['date_activ_y'] < ACTIVATION_LIMIT_DATE)
+        )
+
+        result.loc[mask_activation_rt] = 'AJR'
+        result.loc[
+            mask_activation &
+            ~mask_activation_rt
+        ] = 'AJA'
+
+        # Ajout seul
+        result.loc[
+            mask_ajo &
+            ~mask_activation
+        ] = 'AJO'
 
         
         # SUP pour comp_removed
@@ -233,16 +259,10 @@ class OptimizedProcessor:
                 result.loc[mask_mod] = "UNKNOWN"
                 return result.fillna("UNKNOWN")
             
-            # Normalisation des dates avec gestion sécurisée
-            for col in ['date_activ_x', 'date_activ_y']:
-                mod_df[col] = mod_df[col].fillna('').astype(str).str.strip()
-                mod_df[col] = mod_df[col].replace('', None)
-            
-            # Remplacer les valeurs NaN par des chaînes vides pour éviter les erreurs .isin()
-            statut_x = mod_df['statut_x'].fillna('')
-            statut_y = mod_df['statut_y'].fillna('')
-            date_activ_x = mod_df['date_activ_x'].fillna('')
-            date_activ_y = mod_df['date_activ_y'].fillna('')
+            statut_x = mod_df['statut_x']
+            statut_y = mod_df['statut_y']
+            date_activ_x = mod_df['date_activ_x']
+            date_activ_y = mod_df['date_activ_y']
             
             # Conditions vectorisées avec gestion sécurisée des NaN
             cond_aav = (
@@ -250,10 +270,18 @@ class OptimizedProcessor:
                 (statut_y == 'Projet approuvé') &
                 (date_activ_x != date_activ_y)
             )
+
+            cond_art = (
+                (statut_x == 'Projet approuvé') &
+                (statut_y.isin(['Techniquement opérationnel', 'En service'])) &
+                date_activ_y.notna() &
+                (date_activ_y < ACTIVATION_LIMIT_DATE)
+            )
             
             cond_all = (
-                (statut_x == 'Projet approuvé') & 
-                (statut_y.isin(['Techniquement opérationnel', 'En service']))
+                (statut_x == 'Projet approuvé') &
+                (statut_y.isin(['Techniquement opérationnel', 'En service'])) &
+                ~cond_art
             )
             
             cond_ext = (
@@ -265,22 +293,26 @@ class OptimizedProcessor:
             mod_indices = mod_df.index
             result.loc[mod_indices[cond_aav]] = 'AAV'
             result.loc[mod_indices[cond_all & ~cond_aav]] = 'ALL'
+            result.loc[mod_indices[cond_art & ~cond_aav]] = 'ART'
             result.loc[mod_indices[cond_ext & ~cond_aav & ~cond_all]] = 'EXT'
         
         return result.fillna("UNKNOWN")
-    
+
     def extract_tech_dict_optimized(self, df: pd.DataFrame) -> Dict[Tuple[str, str], Set[str]]:
         """Version optimisée d'extract_tech_dict."""
         df_clean = df.dropna(subset=["sup_id", "adm_lb_nom", "emr_lb_systeme"])
         if df_clean.empty:
             return {}
+
+        result = defaultdict(set)
+        for sup_id, oper, tech in zip(
+            df_clean["sup_id"],
+            df_clean["adm_lb_nom"],
+            df_clean["emr_lb_systeme"]
+        ):
+            result[(sup_id, oper)].add(tech)
         
-        # Groupby optimisé avec transformation directe
-        grouped = (df_clean.groupby(["sup_id", "adm_lb_nom"])["emr_lb_systeme"]
-                  .apply(lambda x: frozenset(x.unique()))
-                  .to_dict())
-        
-        return {k: set(v) for k, v in grouped.items()}
+        return dict(result)
     
     def format_technology_with_changes(self, techs_str: str, old_value: Optional[str], change_type: str) -> str:
         """Formate le champ technologie en intégrant les anciennes valeurs pour CHA/CHI/CHL.
@@ -455,10 +487,10 @@ class OptimizedProcessor:
         """Version optimisée de merge_and_process."""
         try:
             # Chargement optimisé des fichiers
-            added_df = self.preprocess_csv_optimized(added_path, 'comp_added.csv')
-            modified_df = self.preprocess_csv_optimized(modified_path, 'comp_modified.csv')
-            removed_df = self.preprocess_csv_optimized(removed_path, 'comp_removed.csv')
-            
+            added_df = self.preprocess_csv_optimized(added_path, 'comp_added.csv', sep=',')
+            modified_df = self.preprocess_csv_optimized(modified_path, 'comp_modified.csv', sep=',')
+            removed_df = self.preprocess_csv_optimized(removed_path, 'comp_removed.csv', sep=',')
+
             if added_df.empty and modified_df.empty and removed_df.empty:
                 functions_anfr.log_message("Tous les fichiers sont vides.", "FATAL")
                 raise SystemExit(1)
@@ -487,7 +519,6 @@ class OptimizedProcessor:
                 Utilise la formule de Haversine simplifiée"""
                 if lat1 is None or lat2 is None:
                     return None
-                import math
                 R = 6371000  # Rayon terrestre en mètres
                 dlat = math.radians(lat2 - lat1)
                 dlon = math.radians(lon2 - lon1)
@@ -1124,11 +1155,13 @@ def main(no_insee, no_process, debug):
     try:
         # Chargement complet pour extract_tech_dict et build_new_status_map
         functions_anfr.log_message(f"Chargement de {os.path.basename(OLD_CSV_PATH)}...", "INFO")
-        df_old = pd.read_csv(OLD_CSV_PATH, on_bad_lines="skip", dtype=str, sep=None, engine='python')
+        sep_o = functions_anfr.detect_separator(OLD_CSV_PATH)
+        df_old = pd.read_csv(OLD_CSV_PATH, on_bad_lines="skip", dtype=str, sep=sep_o, engine='c')
         functions_anfr.log_message(f"✓ {os.path.basename(OLD_CSV_PATH)} chargé ({len(df_old):,} lignes)", "INFO")
         
         functions_anfr.log_message(f"Chargement de {os.path.basename(NEW_CSV_PATH)}...", "INFO")
-        df_new = pd.read_csv(NEW_CSV_PATH, on_bad_lines="skip", dtype=str, sep=None, engine='python')
+        sep_n = functions_anfr.detect_separator(NEW_CSV_PATH)
+        df_new = pd.read_csv(NEW_CSV_PATH, on_bad_lines="skip", dtype=str, sep=sep_n, engine='c')
         functions_anfr.log_message(f"✓ {os.path.basename(NEW_CSV_PATH)} chargé ({len(df_new):,} lignes)", "INFO")
         
         # Vérifier les colonnes nécessaires pour tech extraction

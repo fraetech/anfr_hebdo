@@ -57,3 +57,12 @@ def get_filename_from_server(url):
     except requests.exceptions.RequestException as e:
         log_message(f"Échec de la récupération du nom du fichier depuis le serveur : {e}", "ERROR")
         raise
+
+def detect_separator(file_path: str) -> str:
+        """Détecte le séparateur CSV sur la première ligne uniquement."""
+        with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+            first_line = f.readline()
+        for sep in (';', ','):
+            if sep in first_line:
+                return sep
+        return ','  # fallback
