@@ -69,7 +69,7 @@ def check_and_execute(url, path_app, script_to_execute, timeout=1200):
     except Exception as e:
         msg = str(e)
         functions_anfr.log_message(f"Une erreur s'est produite : {msg}", "FATAL")
-        if any(code in msg for code in ("443", "500", "Read timed out", "Service unavailable", "HTTPSConnectionPool")):
+        if any(code in msg for code in ("443", "500", "502", "Read timed out", "Service unavailable", "HTTPSConnectionPool")):
             functions_anfr.log_message("Erreur de connexion au serveur ANFR détectée. SMS non envoyé.", "WARN")
         else:
             functions_anfr.send_sms(f"Erreur : {msg}")
