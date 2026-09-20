@@ -13,7 +13,7 @@ from functools import lru_cache
 from typing import Dict, Set, Tuple, Optional, List
 
 # Constants optimisés avec frozenset pour des lookups O(1)
-ZB_TECHNOS = frozenset({"LTE 700", "LTE 800", "UMTS 900"})
+ZB_TECHNOS = frozenset({"LTE 700", "LTE 800", "UMTS 900", "LTE 1800"})
 ZB_OPERATEURS = frozenset({"BOUYGUES TELECOM", "FREE MOBILE", "SFR", "ORANGE"})
 
 # Pattern regex pré-compilé pour éviter la recompilation
@@ -28,11 +28,17 @@ try:
         TIMESTAMP = lines[0].strip()
         OLD_CSV_PATH = lines[1].strip()
         NEW_CSV_PATH = lines[2].strip()
+        DATA_DATE = lines[3].strip() if len(lines) > 3 else ""
 except (FileNotFoundError, IndexError) as e:
     functions_anfr.log_message(f"Erreur lecture timestamp: {e}", "FATAL")
     raise SystemExit(1)
 
-ACTIVATION_LIMIT_DATE = (datetime.strptime(TIMESTAMP, "%d/%m/%Y à %H:%M:%S")-timedelta(days=28)).strftime("%Y-%m-%d")
+ACTIVATION_GRACE_DAYS = {
+    "hebdo": 28,
+    "mensu": 56,
+    "trim": 112,
+}
+ACTIVATION_LIMIT_DATE = (datetime.strptime(TIMESTAMP, "%d/%m/%Y à %H:%M:%S") - timedelta(days=28)).strftime("%Y-%m-%d")
 
 # Dictionnaires de correspondance optimisés
 # Dictionnaires de correspondance optimisés
@@ -92,11 +98,19 @@ CORRESPONDANCES_PROPRIETAIRE_SUPPORT = {
 
 
 class OptimizedProcessor:
-    def __init__(self):
+    def __init__(self, update_type: str = "hebdo"):
+        if update_type not in ACTIVATION_GRACE_DAYS:
+            raise ValueError(f"Type de mise à jour inconnu : {update_type}")
         self.insee_data: Dict[str, str] = {}
+        self.activation_limit_date = (
+            datetime.strptime(TIMESTAMP, "%d/%m/%Y à %H:%M:%S") -
+            timedelta(days=ACTIVATION_GRACE_DAYS[update_type])
+        ).strftime("%Y-%m-%d")
         self.techs_new_map: Dict[Tuple[str, str], Set[str]] = {}
         self.techs_old_map: Dict[Tuple[str, str], Set[str]] = {}
         self.new_status_dict: Dict[Tuple[str, str], List[str]] = defaultdict(list)
+        self.new_azimuth_map: Dict[Tuple[str, str], List[str]] = defaultdict(list)
+        self.zb_site_map: Dict[str, bool] = {}
         
         # Cache pour les calculs coûteux
         self._zb_cache: Dict[Tuple[str, str], bool] = {}
@@ -105,13 +119,20 @@ class OptimizedProcessor:
     def load_insee_data_optimized(self, filepath: str, encoding: str = 'utf-8') -> Dict[str, str]:
         """Charge les données INSEE de manière optimisée."""
         try:
-            with open(filepath, mode='r', encoding=encoding) as file:
+            self.insee_data = {}
+            with open(filepath, mode='r', encoding=encoding, newline='') as file:
                 reader = csv.reader(file, delimiter=';')
-                # Création directe du dictionnaire optimisé
-                self.insee_data = {
-                    row[0].zfill(5): f"{row[2]} {row[1]}"
-                    for row in reader if len(row) >= 3 and row[0]
-                }
+                for row in reader:
+                    if len(row) < 3:
+                        continue
+                    code = str(row[0]).strip().replace('\ufeff', '')
+                    if not code or code.startswith('#Code_commune_INSEE') or not code.isdigit():
+                        continue
+                    city = str(row[1]).strip()
+                    postal = str(row[2]).strip()
+                    if not city or not postal:
+                        continue
+                    self.insee_data[code.zfill(5)] = f"{postal} {city}"
             functions_anfr.log_message("Données INSEE chargées avec succès.")
         except UnicodeDecodeError:
             functions_anfr.log_message(f"Erreur de décodage avec l'encodage {encoding}.", "ERROR")
@@ -123,10 +144,21 @@ class OptimizedProcessor:
         return self.insee_data
     
     def conv_insee_vectorized(self, codes_insee: pd.Series) -> pd.Series:
-        """Version vectorisée de la conversion INSEE."""
-        return (codes_insee.astype(str).str.zfill(5)
-                .map(self.insee_data)
-                .fillna("00404 ERR CONV INSEE"))
+        """Version vectorisée de la conversion INSEE.
+
+        Si un code commune n'est pas présent dans la table INSEE, on garde le code brut
+        au lieu d'injecter le faux libellé 00404 ERR CONV INSEE qui pollue tout le front.
+        """
+        normalized = (codes_insee.astype(str)
+                      .str.strip()
+                      .str.replace(r'\D', '', regex=True)
+                      .str.zfill(5))
+
+        if not self.insee_data:
+            return normalized
+
+        mapped = normalized.map(self.insee_data)
+        return mapped.fillna(normalized)
     
     def maj_addr_vectorized(self, df: pd.DataFrame) -> pd.Series:
         """Version vectorisée de maj_addr."""
@@ -170,8 +202,11 @@ class OptimizedProcessor:
             
             # Colonnes avec suffixes possibles
             suffixed_cols = [
-                'statut_y', 'date_activ_y'
+                'statut_y', 'date_activ_y', 'list_azimut_last',
+                'list_azimut_old', 'action', 'azimuth_scope',
+                'azimuth_changed_technologies'
             ]
+            base_cols.append('list_azimut')
 
             df_sample = pd.read_csv(file_path, on_bad_lines="skip", dtype=str, sep=sep, engine='c')
             available_cols = df_sample.columns.tolist()
@@ -182,6 +217,13 @@ class OptimizedProcessor:
             # Chargement avec les colonnes disponibles seulement
             df = pd.read_csv(file_path, on_bad_lines="skip", dtype=str, sep=sep, engine='c')
             df['source'] = source
+
+            if 'list_azimut' not in df.columns:
+                df['list_azimut'] = pd.Series(pd.NA, index=df.index, dtype='string')
+                for azimuth_column in ['list_azimut_last', 'list_azimut_old']:
+                    if azimuth_column in df.columns:
+                        candidate = df[azimuth_column].astype('string').replace(r'^\s*$', pd.NA, regex=True)
+                        df['list_azimut'] = df['list_azimut'].fillna(candidate)
             
             functions_anfr.log_message(f"Chargement du fichier '{file_path}' terminé avec succès.")
             functions_anfr.log_message(f"Colonnes chargées: {usecols}")
@@ -240,7 +282,7 @@ class OptimizedProcessor:
         mask_activation_rt = (
             mask_activation &
             df['date_activ_y'].notna() &
-            (df['date_activ_y'] < ACTIVATION_LIMIT_DATE)
+            (df['date_activ_y'] < self.activation_limit_date)
         )
 
         result.loc[mask_activation_rt] = 'AJR'
@@ -264,6 +306,12 @@ class OptimizedProcessor:
         mask_mod = df['source'] == 'comp_modified.csv'
         if mask_mod.any():
             mod_df = df.loc[mask_mod].copy()
+
+            if 'action' in mod_df.columns:
+                explicit_action = mod_df['action'].notna() & mod_df['action'].astype(str).str.strip().ne('')
+                result.loc[mod_df.index[explicit_action]] = mod_df.loc[explicit_action, 'action']
+            else:
+                explicit_action = pd.Series(False, index=mod_df.index)
             
             # Vérifier la présence des colonnes nécessaires
             required_cols = ['statut_x', 'statut_y', 'date_activ_x', 'date_activ_y']
@@ -290,7 +338,7 @@ class OptimizedProcessor:
                 (statut_x == 'Projet approuvé') &
                 (statut_y.isin(['Techniquement opérationnel', 'En service'])) &
                 date_activ_y.notna() &
-                (date_activ_y < ACTIVATION_LIMIT_DATE)
+                (date_activ_y < self.activation_limit_date)
             )
             
             cond_all = (
@@ -306,12 +354,75 @@ class OptimizedProcessor:
             
             # Appliquer les conditions avec les index corrects
             mod_indices = mod_df.index
-            result.loc[mod_indices[cond_aav]] = 'AAV'
-            result.loc[mod_indices[cond_all & ~cond_aav]] = 'ALL'
-            result.loc[mod_indices[cond_art & ~cond_aav]] = 'ART'
-            result.loc[mod_indices[cond_ext & ~cond_aav & ~cond_all]] = 'EXT'
+            remaining = ~explicit_action
+            result.loc[mod_indices[cond_aav & remaining]] = 'AAV'
+            result.loc[mod_indices[cond_all & ~cond_aav & remaining]] = 'ALL'
+            result.loc[mod_indices[cond_art & ~cond_aav & remaining]] = 'ART'
+            result.loc[mod_indices[cond_ext & ~cond_aav & ~cond_all & remaining]] = 'EXT'
         
         return result.fillna("UNKNOWN")
+
+    @staticmethod
+    def format_azimuths(entries: pd.Series) -> str:
+        """Retourne un azimut unique ou une liste annotée par fréquence."""
+        pairs = []
+        for entry in entries.dropna().astype(str):
+            if '\t' not in entry:
+                continue
+            technology, azimuth = entry.split('\t', 1)
+            technology = technology.strip()
+            azimuth = azimuth.strip()
+            if technology and azimuth and (technology, azimuth) not in pairs:
+                pairs.append((technology, azimuth))
+
+        if not pairs:
+            return ''
+
+        azimuths = {azimuth for _, azimuth in pairs}
+        if len(azimuths) == 1:
+            return next(iter(azimuths))
+
+        return '; '.join(
+            f'{technology}: {azimuth}'
+            for technology, azimuth in sorted(pairs, key=lambda pair: pair[0])
+        )
+
+    @staticmethod
+    def format_activation_dates(entries: pd.Series) -> str:
+        """Retourne une date unique ou une date annotée par fréquence."""
+        pairs = []
+        for entry in entries.dropna().astype(str):
+            if '\t' not in entry:
+                continue
+            technology, activation_date = entry.split('\t', 1)
+            technology = technology.strip()
+            activation_date = activation_date.strip()
+            if technology and activation_date and (technology, activation_date) not in pairs:
+                pairs.append((technology, activation_date))
+
+        if not pairs:
+            return ''
+
+        dates = {activation_date for _, activation_date in pairs}
+        if len(dates) == 1:
+            return next(iter(dates))
+
+        return '; '.join(
+            f'{technology}: {activation_date}'
+            for technology, activation_date in sorted(pairs, key=lambda pair: pair[0])
+        )
+
+    @staticmethod
+    def format_azimuth_change(row: pd.Series) -> str:
+        """Décrit la portée et les anciennes/nouvelles valeurs d'un CHZ."""
+        if row.get('action') != 'CHZ':
+            return ''
+        scope = row.get('azimuth_scope') or 'fréquences'
+        technology = row.get('technologie') or ''
+        old_azimuth = row.get('list_azimut_old') or ''
+        new_azimuth = row.get('list_azimut_last') or row.get('list_azimut') or ''
+        label = scope if scope == 'site' else f'{scope}: {technology}'
+        return f'CHZ ({label}) : {old_azimuth} -> {new_azimuth}'
 
     def extract_tech_dict_optimized(self, df: pd.DataFrame) -> Dict[Tuple[str, str], Set[str]]:
         """Version optimisée d'extract_tech_dict."""
@@ -378,25 +489,46 @@ class OptimizedProcessor:
         return defaultdict(list, grouped.to_dict())
     
     def is_zb_cached(self, support_id: str, operateur: str) -> bool:
-        """Version mise en cache de is_zb."""
+        """Retourne le flag ZB calculé au niveau du site."""
         if operateur not in ZB_OPERATEURS:
             return False
-            
-        key = (str(support_id).strip(), operateur)
-        
-        if key in self._zb_cache:
-            return self._zb_cache[key]
-        
-        techs_new = self.techs_new_map.get(key, set())
-        techs_old = self.techs_old_map.get(key, set())
-        
-        result = (
-            (len(techs_new) > 0 and techs_new <= ZB_TECHNOS) or
-            (len(techs_old) > 0 and techs_old <= ZB_TECHNOS)
-        )
-        
-        self._zb_cache[key] = result
-        return result
+        return self.zb_site_map.get(str(support_id).strip(), False)
+
+    def build_zb_site_map(self, df_new: pd.DataFrame, df_old: pd.DataFrame) -> Dict[str, bool]:
+        """Identifie les ZB à partir de l'ensemble du site, des technos et azimuts."""
+        self.zb_site_map = {}
+        old_supports = set(df_old['sup_id'].dropna().astype(str).str.strip()) if 'sup_id' in df_old.columns else set()
+        required_columns = {'sup_id', 'adm_lb_nom', 'emr_lb_systeme', 'list_azimut'}
+        if not required_columns.issubset(df_new.columns):
+            return self.zb_site_map
+
+        site_rows = df_new[list(required_columns)].dropna().copy()
+        for column in required_columns:
+            site_rows[column] = site_rows[column].astype(str).str.strip()
+        site_summary = site_rows.groupby('sup_id', sort=False).agg({
+            'adm_lb_nom': lambda values: frozenset(values),
+            'emr_lb_systeme': lambda values: frozenset(values),
+            'list_azimut': lambda values: frozenset(values),
+        })
+
+        for support_id, operators, technologies, azimuths in site_summary.itertuples():
+            valid_site = (
+                bool(technologies) and
+                technologies <= ZB_TECHNOS and
+                len(azimuths) == 1 and
+                operators == ZB_OPERATEURS
+            )
+
+            first_declaration = (
+                support_id not in old_supports and
+                len(operators) == 1 and
+                operators <= ZB_OPERATEURS
+            )
+            self.zb_site_map[support_id] = valid_site or (
+                first_declaration and bool(technologies) and technologies <= ZB_TECHNOS and len(azimuths) == 1
+            )
+
+        return self.zb_site_map
     
     def is_new_cached(self, support_id: str, operateur: str) -> bool:
         """Version mise en cache de is_new."""
@@ -966,14 +1098,63 @@ class OptimizedProcessor:
 
             if indices_to_remove_added:
                 added_df = added_df.drop(indices_to_remove_added)
+
+            # Une fréquence remplacée par une autre reste une modification du
+            # site lorsque le nombre de secteurs ne change pas.
+            replacement_dfs = []
+            if not added_df.empty and not removed_df.empty:
+                def sector_count(value):
+                    if pd.isna(value) or not str(value).strip():
+                        return 0
+                    return len({part.strip() for part in str(value).split('|') if part.strip()})
+
+                site_columns = ['id_support', 'operateur']
+                for site_key, added_site in added_df.groupby(site_columns):
+                    removed_site = removed_df[
+                        (removed_df['id_support'] == site_key[0]) &
+                        (removed_df['operateur'] == site_key[1])
+                    ]
+                    if len(added_site) != 1 or len(removed_site) != 1:
+                        continue
+
+                    added_index, added_row = next(added_site.iterrows())
+                    removed_index, removed_row = next(removed_site.iterrows())
+                    added_azimuth = added_row.get('list_azimut_last') or added_row.get('list_azimut')
+                    removed_azimuth = removed_row.get('list_azimut_old') or removed_row.get('list_azimut')
+                    if sector_count(added_azimuth) == 0 or sector_count(added_azimuth) != sector_count(removed_azimuth):
+                        continue
+
+                    replacement = added_row.to_frame().T.copy()
+                    replacement['source'] = 'comp_change.csv'
+                    replacement['action'] = 'CHZ'
+                    replacement['technologie'] = (
+                        f"{removed_row['technologie']} -> {added_row['technologie']}"
+                    )
+                    replacement['list_azimut_old'] = removed_azimuth
+                    replacement['list_azimut_last'] = added_azimuth
+                    replacement['list_azimut'] = added_azimuth
+                    replacement['azimuth_scope'] = 'fréquences'
+                    replacement['azimuth_replacement'] = True
+                    replacement['replacement_old_technology'] = removed_row['technologie']
+                    replacement['replacement_new_technology'] = added_row['technologie']
+                    replacement_dfs.append(replacement)
+                    indices_to_remove_added.append(added_index)
+                    indices_to_remove_removed.append(removed_index)
+
+                if replacement_dfs:
+                    added_df = added_df.drop(indices_to_remove_added, errors='ignore')
+                    removed_df = removed_df.drop(indices_to_remove_removed, errors='ignore')
             
             # Détermination des actions de manière vectorisée
             all_dfs = [added_df, modified_df, removed_df]
+            all_dfs.extend(replacement_dfs)
             for df in all_dfs:
                 if not df.empty:
                     df['action'] = self.determine_action_vectorized(df)
                     # Initialiser la colonne infos (vide par défaut)
                     df['infos'] = None
+                    if 'list_azimut' not in df.columns:
+                        df['list_azimut'] = None
             
             # Ajouter les changements détectés à la liste
             for change_type, change_df in change_dfs.items():
@@ -1002,6 +1183,22 @@ class OptimizedProcessor:
             
             # Concaténation
             final_df = pd.concat([df for df in all_dfs if not df.empty], ignore_index=True)
+
+            final_df['azimuth_entry'] = final_df.apply(
+                lambda row: f"{row['technologie']}\t{row['list_azimut']}"
+                if pd.notna(row.get('technologie')) and pd.notna(row.get('list_azimut'))
+                else '',
+                axis=1
+            )
+            final_df['activation_date_entry'] = final_df.apply(
+                lambda row: f"{row['technologie']}\t{row['date_activ']}"
+                if pd.notna(row.get('technologie')) and pd.notna(row.get('date_activ'))
+                else '',
+                axis=1
+            )
+            final_df.loc[final_df['action'] == 'CHZ', 'infos'] = final_df.loc[
+                final_df['action'] == 'CHZ'
+            ].apply(self.format_azimuth_change, axis=1)
             
             # S'assurer que la colonne infos existe après concaténation
             if 'infos' not in final_df.columns:
@@ -1018,7 +1215,7 @@ class OptimizedProcessor:
             # Gérer les colonnes avec suffixes _x et _y seulement si elles existent
             # Pour type_support, hauteur_support, proprietaire_support : elles existent déjà sans suffixe
             combine_cols = {
-                'date_activ': ['date_activ_x', 'date_activ_y'],
+                'date_activ': ['date_activ_y', 'date_activ_x'],
                 'statut': ['statut_x', 'statut_y']
             }
             
@@ -1050,13 +1247,30 @@ class OptimizedProcessor:
                 'type_support': 'first',
                 'hauteur_support': 'first',
                 'proprietaire_support': 'first',
-                'date_activ': 'first',
                 'action': 'first',
-                'infos': 'first'  # Ajout de la colonne infos
+                'infos': lambda values: '; '.join(dict.fromkeys(
+                    value for value in values.dropna().astype(str) if value
+                )),
+                'azimuth_entry': self.format_azimuths,
+                'activation_date_entry': self.format_activation_dates
             }
             
             final_df = (final_df.groupby(['id_support', 'operateur', 'action'], as_index=False)
                        .agg(agg_dict))
+
+            final_df = final_df.rename(columns={
+                'azimuth_entry': 'liste_azimut',
+                'activation_date_entry': 'date_activ'
+            })
+
+            chz_mask = final_df['action'] == 'CHZ'
+            if chz_mask.any() and self.new_azimuth_map:
+                final_df.loc[chz_mask, 'liste_azimut'] = final_df.loc[chz_mask].apply(
+                    lambda row: self.format_azimuths(
+                        pd.Series(self.new_azimuth_map.get((row['id_support'], row['operateur']), []))
+                    ),
+                    axis=1
+                )
             
             # Post-traitement du champ technologie
             # Pour CHA/CHI/CHL : vider la technologie (déjà fait avant, mais on s'assure)
@@ -1144,7 +1358,11 @@ class OptimizedProcessor:
                     operator_df.to_csv(os.path.join(output_path, filename), index=False)
             
             # Fichier avec timestamp
-            time_period = functions_anfr.get_period_code(TIMESTAMP, args.update_type)
+            data_date = DATA_DATE or None
+            if not data_date:
+                metadata = functions_anfr.parse_anfr_filename(NEW_CSV_PATH)
+                data_date = metadata[2] if metadata else None
+            time_period = functions_anfr.get_period_code(TIMESTAMP, args.update_type, data_date)
             final_df.to_csv(os.path.join(output_path, f"{time_period}.csv"), index=False)
             
             functions_anfr.log_message("Fichiers finaux générés avec succès, duplications supprimées.")
@@ -1156,7 +1374,7 @@ class OptimizedProcessor:
 
 def main(no_insee, no_process, debug):
     """Fonction principale optimisée."""
-    processor = OptimizedProcessor()
+    processor = OptimizedProcessor(update_type=args.update_type)
     
     path_app = os.path.dirname(os.path.abspath(__file__))
     added_path = os.path.join(path_app, 'files', 'compared', 'comp_added.csv')
@@ -1195,10 +1413,24 @@ def main(no_insee, no_process, debug):
 
     # Préparation des données tech et status une seule fois
     functions_anfr.log_message("Préparation des index technologie et statuts...", "INFO")
+    processor.build_zb_site_map(df_new, df_old)
+    functions_anfr.log_message(
+        f"✓ Index ZB sites créé ({sum(processor.zb_site_map.values()):,} sites)",
+        "INFO"
+    )
     
     if new_has_tech_cols:
         processor.techs_new_map = processor.extract_tech_dict_optimized(df_new)
         functions_anfr.log_message(f"✓ Index tech NEW créé ({len(processor.techs_new_map):,} entrées)", "INFO")
+        if 'list_azimut' in df_new.columns:
+            for (support_id, operator), site_df in df_new.groupby(['sup_id', 'adm_lb_nom']):
+                processor.new_azimuth_map[(support_id, operator)] = [
+                    f"{technology}\t{azimuth}"
+                    for technology, azimuth in zip(
+                        site_df['emr_lb_systeme'], site_df['list_azimut']
+                    )
+                    if pd.notna(technology) and pd.notna(azimuth)
+                ]
     else:
         processor.techs_new_map = {}
         

@@ -1,5 +1,8 @@
 #!/usr/bin/env python
 from datetime import datetime
+from pathlib import Path
+import re
+from zoneinfo import ZoneInfo
 import subprocess
 import requests
 import sys
@@ -8,6 +11,8 @@ import os
 # On remonte au /home/user pour construire le chemin vers le dossier dim_brest pour les SMS
 h_directory = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 send_sms_path = os.path.join(h_directory, "dim_brest", "sms.py")
+ANFR_FILENAME_PATTERN = re.compile(r"^(?P<generated>\d{14})_.*?_(?P<data>\d{8})\.csv$")
+PARIS_TIMEZONE = ZoneInfo("Europe/Paris")
 
 
 def log_message(message, level="INFO"):
@@ -16,7 +21,19 @@ def log_message(message, level="INFO"):
     print(f"{timestamp} [{level}] -> {message}")
 
 
-def get_period_code(timestamp_str: str, period_type: str) -> str:
+def parse_anfr_filename(file_path: str):
+    """Extrait les timestamps ANFR et convertit la génération UTC en heure locale."""
+    match = ANFR_FILENAME_PATTERN.match(Path(file_path).name)
+    if not match:
+        return None
+
+    generated_utc = datetime.strptime(match.group("generated"), "%Y%m%d%H%M%S").replace(tzinfo=ZoneInfo("UTC"))
+    generated_local = generated_utc.astimezone(PARIS_TIMEZONE).replace(tzinfo=None)
+    data_date = datetime.strptime(match.group("data"), "%Y%m%d").date()
+    return generated_utc, generated_local, data_date
+
+
+def get_period_code(timestamp_str: str, period_type: str, data_date=None) -> str:
     """Génère le code de période selon le type.
     
     Args:
@@ -27,6 +44,10 @@ def get_period_code(timestamp_str: str, period_type: str) -> str:
         Code de période formaté (S##_YYYY, MM_YYYY ou T#_YYYY)
     """
     dt = datetime.strptime(timestamp_str, "%d/%m/%Y à %H:%M:%S")
+    if data_date is not None:
+        if isinstance(data_date, str):
+            data_date = datetime.strptime(data_date, "%Y-%m-%d").date()
+        dt = datetime.combine(data_date, datetime.min.time())
     
     if period_type == "hebdo":
         iso_year, iso_week, _ = dt.isocalendar()

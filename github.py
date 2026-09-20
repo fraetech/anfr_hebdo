@@ -12,7 +12,10 @@ import functions_anfr
 def get_timestamp():
     fc_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "files", "compared", "timestamp.txt")
     with open(fc_file, "r", encoding="utf-8") as f:
-        return f.readline().strip()
+        lines = f.readlines()
+        timestamp = lines[0].strip()
+        data_date = lines[3].strip() if len(lines) > 3 else ""
+        return timestamp, data_date
 
 
 def copy_files(update_type: str, path_app: Path, period_code: str):
@@ -72,8 +75,8 @@ def main(args):
         functions_anfr.log_message("GITHUB_TOKEN non défini dans le fichier .env.", "FATAL")
         sys.exit(1)
 
-    timestamp = get_timestamp()
-    period_code = functions_anfr.get_period_code(timestamp, args.update_type)
+    timestamp, data_date = get_timestamp()
+    period_code = functions_anfr.get_period_code(timestamp, args.update_type, data_date or None)
     path_app = Path(__file__).resolve().parent
 
     # Copier les fichiers

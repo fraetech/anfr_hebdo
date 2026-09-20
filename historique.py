@@ -14,9 +14,10 @@ fc_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "files", "com
 with open(fc_file, "r", encoding="utf-8") as f:
     lines = f.readlines()
     TIMESTAMP = lines[0].strip()
+    DATA_DATE = lines[3].strip() if len(lines) > 3 else ""
 
 
-def get_actual_week_for_data(timestamp_str: str) -> tuple:
+def get_actual_week_for_data(timestamp_str: str, data_date=None) -> tuple:
     """Détermine la vraie semaine ISO des données basée sur le jour de publication.
     
     Args:
@@ -30,6 +31,10 @@ def get_actual_week_for_data(timestamp_str: str) -> tuple:
         - Lundi/Mardi/Mercredi (1,2,3) : données de la semaine précédente N-1 (rattrapage)
     """
     dt = datetime.strptime(timestamp_str, "%d/%m/%Y à %H:%M:%S")
+    if data_date:
+        dt = datetime.strptime(data_date, "%Y-%m-%d")
+        iso_year, iso_week, _ = dt.isocalendar()
+        return iso_week, iso_year
     iso_year, iso_week, iso_day = dt.isocalendar()
     
     # Si lundi, mardi ou mercredi (jours 1, 2, 3), c'est un rattrapage de la semaine précédente
@@ -72,7 +77,7 @@ def build_label_and_path(period_code: str, dt: datetime, type_: str):
     
     return label, path
 
-def update_history_csv(type_: str, timestamp_str: str):
+def update_history_csv(type_: str, timestamp_str: str, data_date=None):
     """Met à jour l'historique en gérant intelligemment les doublons hebdomadaires.
     
     Pour les MAJ hebdomadaires:
@@ -81,8 +86,9 @@ def update_history_csv(type_: str, timestamp_str: str):
     - Si plusieurs MAJ pour la même semaine: on remplace l'ancienne par la nouvelle
     """
     dt = datetime.strptime(timestamp_str, "%d/%m/%Y à %H:%M:%S")
-    period_code = functions_anfr.get_period_code(timestamp_str, type_)
-    label, path = build_label_and_path(period_code, dt, type_)
+    period_code = functions_anfr.get_period_code(timestamp_str, type_, data_date)
+    label_dt = datetime.strptime(data_date, "%Y-%m-%d") if data_date else dt
+    label, path = build_label_and_path(period_code, label_dt, type_)
 
     path_app = Path(__file__).resolve().parent
     repo_dir = path_app.parent / "fraetech.github.io"
@@ -99,7 +105,7 @@ def update_history_csv(type_: str, timestamp_str: str):
     
     if type_ == "hebdo":
         # Déduire la vraie semaine basée sur le jour de publication
-        actual_week, actual_year = get_actual_week_for_data(timestamp_str)
+        actual_week, actual_year = get_actual_week_for_data(timestamp_str, data_date)
         actual_period = f"S{actual_week:02d}_{actual_year}"
         
         # Chercher si une entrée existe déjà pour cette vraie semaine
@@ -160,7 +166,7 @@ def update_history_csv(type_: str, timestamp_str: str):
         writer.writerows(existing_rows)
 
 def main(args):
-    update_history_csv(args.update_type, TIMESTAMP)
+    update_history_csv(args.update_type, TIMESTAMP, DATA_DATE)
 
     dt = datetime.strptime(TIMESTAMP, "%d/%m/%Y à %H:%M:%S")
     path_app = Path(__file__).resolve().parent
@@ -168,7 +174,7 @@ def main(args):
     source_file = lines[2].strip()
 
     for period_type in ["hebdo", "mensu", "trim"]:
-        period_code = functions_anfr.get_period_code(TIMESTAMP, period_type)
+        period_code = functions_anfr.get_period_code(TIMESTAMP, period_type, DATA_DATE or None)
         with open(os.path.join(path_app, "files", "pretraite", f"{period_code}.txt"), "w", encoding="utf-8") as f:
             f.write(str(TIMESTAMP))
             f.close()

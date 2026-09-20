@@ -6,6 +6,7 @@ import os
 from datetime import datetime, timedelta
 import requests
 import functions_anfr
+from collections import defaultdict
 
 def download_data(url, save_path, max_retries=3, delay=60):
     for attempt in range(1, max_retries + 1):
@@ -24,10 +25,12 @@ def download_data(url, save_path, max_retries=3, delay=60):
                 functions_anfr.log_message(f"Échec du téléchargement après {max_retries} tentatives.", "ERROR")
                 raise SystemExit(1)
 
-def get_previous_period_filename(update_type):
-    now = datetime.now()
+def get_previous_period_filename(update_type, reference_date=None):
+    now = reference_date or datetime.now().date()
+    if hasattr(now, 'date'):
+        now = now.date()
     if update_type == "mensu":
-        first_day_last_month = (now.replace(day=1) - timedelta(days=1)).replace(day=1)
+        first_day_last_month = (datetime.combine(now, datetime.min.time()).replace(day=1) - timedelta(days=1)).replace(day=1)
         return f"{first_day_last_month.strftime('%m_%Y')}.csv"
     elif update_type == "trim":
         current_quarter = (now.month - 1) // 3 + 1
@@ -38,30 +41,31 @@ def get_previous_period_filename(update_type):
 
 def csv_files_update(path_new_csv, update_type):
     dir_path = os.path.dirname(path_new_csv)
-    date = datetime.now()
+    new_metadata = functions_anfr.parse_anfr_filename(path_new_csv)
+    new_generated_local = datetime.now()
+    new_data_date = None
+    if new_metadata is not None:
+        _, new_generated_local, new_data_date = new_metadata
     old_csv_path = None
 
     if update_type == "hebdo":
-        date_limite_sup = date - timedelta(days=1)
-        date_limite_inf = date - timedelta(days=31)
-        min_diff = timedelta.max
+        candidates = []
         for fichier in os.listdir(dir_path):
             path_check_file = os.path.join(dir_path, fichier)
-            try:
-                file_timestamp_str = fichier.split('_')[0]
-                file_timestamp = datetime.strptime(file_timestamp_str, "%Y%m%d%H%M%S")
-            except ValueError:
+            metadata = functions_anfr.parse_anfr_filename(path_check_file)
+            if metadata is None or path_check_file == path_new_csv:
                 continue
+            generated_utc, _, data_date = metadata
+            if new_data_date is not None and data_date < new_data_date:
+                candidates.append((data_date, generated_utc, path_check_file))
 
-            if file_timestamp < date_limite_inf:
-                os.remove(path_check_file)
-            elif date_limite_inf <= file_timestamp <= date_limite_sup:
-                diff = date - file_timestamp
-                if diff < min_diff and path_check_file != path_new_csv:
-                    min_diff = diff
-                    old_csv_path = path_check_file
+        if candidates:
+            old_csv_path = max(candidates, key=lambda item: (item[0], item[1]))[2]
+
+        cleanup_anfr_duplicates(dir_path, path_new_csv, old_csv_path)
     else:
-        expected_filename = get_previous_period_filename(update_type)
+        reference_date = new_data_date or datetime.now().date()
+        expected_filename = get_previous_period_filename(update_type, reference_date)
         # Trouver le fichier de la période précédente
         for fichier in os.listdir(dir_path):
             if fichier == expected_filename:
@@ -112,15 +116,44 @@ def csv_files_update(path_new_csv, update_type):
                 except Exception as e:
                     functions_anfr.log_message(f"Erreur lors de la suppression de {fichier}: {e}", "ERROR")
 
+        cleanup_anfr_duplicates(dir_path, path_new_csv, old_csv_path)
+
     if old_csv_path is None:
         raise FileNotFoundError("Aucun fichier de référence trouvé pour le type de mise à jour spécifié.")
 
     if update_type == "hebdo":
-        functions_anfr.send_sms(f"Comparaison lancée entre : {datetime.strptime(os.path.basename(path_new_csv)[:14], '%Y%m%d%H%M%S').strftime('%Y-%m-%d %H:%M:%S')} et : {datetime.strptime(os.path.basename(old_csv_path)[:14], '%Y%m%d%H%M%S').strftime('%Y-%m-%d %H:%M:%S')}.")
+        functions_anfr.send_sms(f"Comparaison lancée entre : {display_file_timestamp(path_new_csv)} et : {display_file_timestamp(old_csv_path)}.")
     else:
-        functions_anfr.send_sms(f"Comparaison lancée entre : {datetime.strptime(os.path.basename(path_new_csv)[:14], '%Y%m%d%H%M%S').strftime('%Y-%m-%d %H:%M:%S')} et : {os.path.basename(old_csv_path)}.")
-    selected_timestamp = datetime.strptime(os.path.basename(path_new_csv)[:14], '%Y%m%d%H%M%S').strftime('%d/%m/%Y à %H:%M:%S')
-    return old_csv_path, path_new_csv, selected_timestamp
+        functions_anfr.send_sms(f"Comparaison lancée entre : {display_file_timestamp(path_new_csv)} et : {display_file_timestamp(old_csv_path)}.")
+    selected_timestamp = new_generated_local.strftime('%d/%m/%Y à %H:%M:%S')
+    selected_data_date = new_data_date.isoformat() if new_data_date else ''
+    return old_csv_path, path_new_csv, selected_timestamp, selected_data_date
+
+
+def cleanup_anfr_duplicates(dir_path, path_new_csv, path_old_csv):
+    """Conserve le dernier fichier généré pour chaque date de données ANFR."""
+    grouped = defaultdict(list)
+    for filename in os.listdir(dir_path):
+        path = os.path.join(dir_path, filename)
+        metadata = functions_anfr.parse_anfr_filename(path)
+        if metadata is not None:
+            grouped[metadata[2]].append((metadata[0], path))
+
+    protected = {os.path.abspath(path) for path in (path_new_csv, path_old_csv) if path}
+    for paths in grouped.values():
+        paths.sort(key=lambda item: item[0], reverse=True)
+        keep = {os.path.abspath(paths[0][1])} | protected
+        for _, path in paths:
+            if os.path.abspath(path) not in keep:
+                os.remove(path)
+                functions_anfr.log_message(f"Doublon ANFR supprimé : {os.path.basename(path)}")
+
+
+def display_file_timestamp(file_path):
+    metadata = functions_anfr.parse_anfr_filename(file_path)
+    if metadata is not None:
+        return metadata[1].strftime('%Y-%m-%d %H:%M:%S')
+    return os.path.basename(file_path)
 
 def rename_old_file(old_path, new_path):
     try:
@@ -136,7 +169,7 @@ def load_and_process_csv(file_path):
     try:
         sep = functions_anfr.detect_separator(file_path)
         df = pd.read_csv(file_path, sep=sep, engine='c', on_bad_lines='skip', dtype=str)
-        df = df[['adm_lb_nom', 'sup_id', 'emr_lb_systeme', 'nat_id', 'sup_nm_haut', 'tpo_id', 'adr_lb_lieu', 'adr_lb_add1', 'adr_lb_add2', 'adr_lb_add3', 'com_cd_insee', 'coordonnees', 'statut', 'emr_dt']]
+        df = df[['adm_lb_nom', 'sup_id', 'emr_lb_systeme', 'nat_id', 'sup_nm_haut', 'tpo_id', 'adr_lb_lieu', 'adr_lb_add1', 'adr_lb_add2', 'adr_lb_add3', 'com_cd_insee', 'coordonnees', 'statut', 'emr_dt', 'list_azimut']]
         df = df.rename(columns={
             'adm_lb_nom': 'operateur',
             'sup_id': 'id_support',
@@ -151,7 +184,8 @@ def load_and_process_csv(file_path):
             'com_cd_insee': 'code_insee',
             'coordonnees': 'coordonnees',
             'statut': 'statut',
-            'emr_dt': 'date_activ'
+            'emr_dt': 'date_activ',
+            'list_azimut': 'list_azimut'
         })
         
         # === NORMALISATION DES COLONNES CLÉ ===
@@ -179,9 +213,13 @@ def compare_data(df_old, df_current):
         # Préparation des colonnes pour la comparaison
         df_old['statut_old'] = df_old['statut']
         df_old['date_activ_old'] = df_old['date_activ']
+        df_old['list_azimut_old'] = df_old['list_azimut']
+        df_old = df_old.drop(columns=['list_azimut'])
         
         df_current['statut_last'] = df_current['statut']
         df_current['date_activ_last'] = df_current['date_activ']
+        df_current['list_azimut_last'] = df_current['list_azimut']
+        df_current = df_current.drop(columns=['list_azimut'])
         
         # Merge sur toutes les colonnes identifiantes (sans statut et date_activ)
         df_merged = pd.merge(
@@ -220,7 +258,42 @@ def compare_data(df_old, df_current):
             df_merged['date_activ_last'].fillna('').astype(str).str.strip())
         )
 
-        df_modified = df_merged[mask_statut | mask_date]
+        mask_azimut = (
+            df_merged['list_azimut_old'].fillna('') !=
+            df_merged['list_azimut_last'].fillna('')
+        )
+
+        df_modified = df_merged[mask_statut | mask_date | mask_azimut].copy()
+
+        if not df_modified.empty:
+            df_modified['action'] = None
+            df_modified.loc[mask_azimut.loc[df_modified.index], 'action'] = 'CHZ'
+            df_modified['azimuth_scope'] = None
+            df_modified['azimuth_changed_technologies'] = None
+            changed_site_keys = df_modified.loc[
+                df_modified['action'] == 'CHZ',
+                ['id_support', 'operateur']
+            ].drop_duplicates()
+            changed_technologies = (
+                df_modified.loc[df_modified['action'] == 'CHZ']
+                .groupby(['id_support', 'operateur'])['technologie']
+                .agg(lambda values: set(values))
+            )
+            old_changed = df_old.merge(changed_site_keys, on=['id_support', 'operateur'])
+            current_changed = df_current.merge(changed_site_keys, on=['id_support', 'operateur'])
+            old_technologies = old_changed.groupby(['id_support', 'operateur'])['technologie'].agg(set)
+            current_technologies = current_changed.groupby(['id_support', 'operateur'])['technologie'].agg(set)
+            for (support_id, operator), technologies in changed_technologies.items():
+                common_technologies = old_technologies.get((support_id, operator), set()) & current_technologies.get((support_id, operator), set())
+                scope = 'site' if technologies == common_technologies else 'fréquences'
+                changed_label = ', '.join(sorted(technologies))
+                site_mask = (
+                    (df_modified['id_support'] == support_id) &
+                    (df_modified['operateur'] == operator) &
+                    (df_modified['action'] == 'CHZ')
+                )
+                df_modified.loc[site_mask, 'azimuth_scope'] = scope
+                df_modified.loc[site_mask, 'azimuth_changed_technologies'] = changed_label
         
         # Supprimer les lignes ajoutées et supprimées des modifications
         df_modified = df_modified.drop(df_removed.index)
@@ -261,6 +334,7 @@ def main(no_file_update, no_download, no_compare, no_write,
     old_csv_path = None
     current_csv_path = None
     timestamp = None
+    data_date = ''
 
     # ==========================
     # MODE FORÇAGE COMPLET
@@ -278,6 +352,12 @@ def main(no_file_update, no_download, no_compare, no_write,
             if timestamp_a
             else "28/12/2025 à 12:00:00"
         )
+        metadata = functions_anfr.parse_anfr_filename(current_csv_path)
+        if metadata is not None:
+            _, generated_local, parsed_data_date = metadata
+            if not timestamp_a:
+                timestamp = generated_local.strftime('%d/%m/%Y à %H:%M:%S')
+            data_date = parsed_data_date.isoformat()
 
         functions_anfr.log_message(
             f"Vous forcez la MAJ avec le old_csv : {old_csv_path}",
@@ -334,7 +414,7 @@ def main(no_file_update, no_download, no_compare, no_write,
 
             if curr_csv_path:
 
-                old_csv_path, current_csv_path, timestamp = (
+                old_csv_path, current_csv_path, timestamp, data_date = (
                     csv_files_update(
                         curr_csv_path,
                         update_type
@@ -353,6 +433,9 @@ def main(no_file_update, no_download, no_compare, no_write,
             current_csv_path = curr_csv_path
 
             timestamp = "15/12/2020 à 13:37:37"
+            metadata = functions_anfr.parse_anfr_filename(current_csv_path) if current_csv_path else None
+            if metadata is not None:
+                data_date = metadata[2].isoformat()
 
             functions_anfr.log_message(
                 "Mise à jour des fichiers CSV sautée : "
@@ -371,6 +454,11 @@ def main(no_file_update, no_download, no_compare, no_write,
         if debug:
             functions_anfr.log_message("Nouveau CSV chargé", "DEBUG")
         df_added, df_removed, df_modified = compare_data(df_old, df_current)
+        cleanup_anfr_duplicates(
+            os.path.dirname(current_csv_path),
+            current_csv_path,
+            None
+        )
         functions_anfr.log_message("Comparaison terminée")
     else:
         df_added, df_removed, df_modified = None, None, None
@@ -428,7 +516,8 @@ def main(no_file_update, no_download, no_compare, no_write,
     with open(os.path.join(path_app, 'files', 'compared', 'timestamp.txt'), 'w', encoding="utf-8") as f1:
         f1.write(str(timestamp) + "\n")
         f1.write(str(old_csv_path) + "\n")
-        f1.write(str(current_csv_path))
+        f1.write(str(current_csv_path) + "\n")
+        f1.write(str(data_date))
         f1.close()
     with open(os.path.join(path_app, 'files', 'pretraite', 'timestamp.txt'), 'w', encoding="utf-8") as f2:
         f2.write(str(timestamp))
