@@ -1108,6 +1108,11 @@ class OptimizedProcessor:
                         return 0
                     return len({part.strip() for part in str(value).split('|') if part.strip()})
 
+                def azimuth_set(value):
+                        if pd.isna(value):
+                            return frozenset()
+                        return frozenset(p.strip() for p in str(value).split('|') if p.strip())
+
                 site_columns = ['id_support', 'operateur']
                 for site_key, added_site in added_df.groupby(site_columns):
                     removed_site = removed_df[
@@ -1124,12 +1129,13 @@ class OptimizedProcessor:
                     if sector_count(added_azimuth) == 0 or sector_count(added_azimuth) != sector_count(removed_azimuth):
                         continue
 
+                    if azimuth_set(added_azimuth) == azimuth_set(removed_azimuth):
+                        continue  # mêmes azimuts : simple changement de fréquence, pas un CHZ
+
                     replacement = added_row.to_frame().T.copy()
                     replacement['source'] = 'comp_change.csv'
                     replacement['action'] = 'CHZ'
-                    replacement['technologie'] = (
-                        f"{removed_row['technologie']} -> {added_row['technologie']}"
-                    )
+                    replacement['technologie'] = added_row['technologie']
                     replacement['list_azimut_old'] = removed_azimuth
                     replacement['list_azimut_last'] = added_azimuth
                     replacement['list_azimut'] = added_azimuth
@@ -1190,12 +1196,6 @@ class OptimizedProcessor:
                 else '',
                 axis=1
             )
-            final_df['activation_date_entry'] = final_df.apply(
-                lambda row: f"{row['technologie']}\t{row['date_activ']}"
-                if pd.notna(row.get('technologie')) and pd.notna(row.get('date_activ'))
-                else '',
-                axis=1
-            )
             final_df.loc[final_df['action'] == 'CHZ', 'infos'] = final_df.loc[
                 final_df['action'] == 'CHZ'
             ].apply(self.format_azimuth_change, axis=1)
@@ -1234,7 +1234,15 @@ class OptimizedProcessor:
             for col in ['type_support', 'hauteur_support', 'proprietaire_support']:
                 if col not in final_df.columns:
                     final_df[col] = None
-            
+
+            # Entrées date par techno, calculées APRÈS la consolidation de date_activ
+            date_mask = final_df['technologie'].notna() & final_df['date_activ'].notna()
+            final_df['activation_date_entry'] = ''
+            final_df.loc[date_mask, 'activation_date_entry'] = (
+                final_df.loc[date_mask, 'technologie'].astype(str) + '\t'
+                + final_df.loc[date_mask, 'date_activ'].astype(str)
+            )
+
             # Mise à jour des adresses vectorisée
             final_df['adresse'] = self.maj_addr_vectorized(final_df)
             
