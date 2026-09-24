@@ -15,6 +15,7 @@ from typing import Dict, Set, Tuple, Optional, List
 # Constants optimisés avec frozenset pour des lookups O(1)
 ZB_TECHNOS = frozenset({"LTE 700", "LTE 800", "UMTS 900", "LTE 1800"})
 ZB_OPERATEURS = frozenset({"BOUYGUES TELECOM", "FREE MOBILE", "SFR", "ORANGE"})
+ZB_CORE_TECHNOS = frozenset({"UMTS 900", "LTE 700", "LTE 800"})
 
 # Pattern regex pré-compilé pour éviter la recompilation
 TECH_PATTERN = re.compile(r'\b((?:GSM|UMTS|LTE))\s(\d{3,4})\b|\b(5G NR)\s(\d{3,5})\b')
@@ -207,12 +208,11 @@ class OptimizedProcessor:
                 'azimuth_changed_technologies'
             ]
             base_cols.append('list_azimut')
-
-            df_sample = pd.read_csv(file_path, on_bad_lines="skip", dtype=str, sep=sep, engine='c')
-            available_cols = df_sample.columns.tolist()
             
             # Prendre les colonnes de base disponibles + les colonnes avec suffixe disponibles
-            usecols = [col for col in base_cols + suffixed_cols if col in available_cols]
+            df = pd.read_csv(file_path, on_bad_lines="skip", dtype=str, sep=sep, engine='c')
+            df['source'] = source
+            usecols = [col for col in base_cols + suffixed_cols if col in df.columns]
             
             # Chargement avec les colonnes disponibles seulement
             df = pd.read_csv(file_path, on_bad_lines="skip", dtype=str, sep=sep, engine='c')
@@ -242,7 +242,7 @@ class OptimizedProcessor:
         
         elements = tech_string.split(", ")
         
-        def sort_key(tech: str) -> Tuple[int, int]:
+        def sort_key(tech: str) -> Tuple[float, int]:
             match = TECH_PATTERN.match(tech.strip())
             if match:
                 technology = match.group(1) or match.group(3)
@@ -485,8 +485,10 @@ class OptimizedProcessor:
         if df_clean.empty:
             return defaultdict(list)
         
-        grouped = df_clean.groupby(["sup_id", "adm_lb_nom"])["statut"].apply(list)
-        return defaultdict(list, grouped.to_dict())
+        grouped = defaultdict(list)
+        for key, statut in zip(zip(df_clean["sup_id"], df_clean["adm_lb_nom"]), df_clean["statut"]):
+            grouped[key].append(statut)
+        return grouped
     
     def is_zb_cached(self, support_id: str, operateur: str) -> bool:
         """Retourne le flag ZB calculé au niveau du site."""
@@ -502,32 +504,26 @@ class OptimizedProcessor:
         if not required_columns.issubset(df_new.columns):
             return self.zb_site_map
 
-        site_rows = df_new[list(required_columns)].dropna().copy()
+        site_rows = df_new[list(required_columns)].dropna().drop_duplicates()
         for column in required_columns:
             site_rows[column] = site_rows[column].astype(str).str.strip()
-        site_summary = site_rows.groupby('sup_id', sort=False).agg({
-            'adm_lb_nom': lambda values: frozenset(values),
-            'emr_lb_systeme': lambda values: frozenset(values),
-            'list_azimut': lambda values: frozenset(values),
-        })
 
-        for support_id, operators, technologies, azimuths in site_summary.itertuples():
-            valid_site = (
-                bool(technologies) and
-                technologies <= ZB_TECHNOS and
-                len(azimuths) == 1 and
-                operators == ZB_OPERATEURS
-            )
+        ops_by_site, techs_by_site, az_by_site = defaultdict(set), defaultdict(set), defaultdict(set)
+        for sid, op, tech, az in zip(site_rows['sup_id'], site_rows['adm_lb_nom'],
+                                    site_rows['emr_lb_systeme'], site_rows['list_azimut']):
+            ops_by_site[sid].add(op); techs_by_site[sid].add(tech); az_by_site[sid].add(az)
 
+        for support_id, operators in ops_by_site.items():
+            technologies = techs_by_site[support_id]
+            azimuths = az_by_site[support_id]
+            techs_ok = ZB_CORE_TECHNOS <= technologies <= ZB_TECHNOS   # noyau obligatoire, 1800 optionnel
+            valid_site = techs_ok and len(azimuths) == 1 and operators == ZB_OPERATEURS
             first_declaration = (
-                support_id not in old_supports and
-                len(operators) == 1 and
-                operators <= ZB_OPERATEURS
+                support_id not in old_supports and len(operators) == 1 and operators <= ZB_OPERATEURS
             )
             self.zb_site_map[support_id] = valid_site or (
-                first_declaration and bool(technologies) and technologies <= ZB_TECHNOS and len(azimuths) == 1
+                first_declaration and techs_ok and len(azimuths) == 1
             )
-
         return self.zb_site_map
     
     def is_new_cached(self, support_id: str, operateur: str) -> bool:
@@ -543,91 +539,40 @@ class OptimizedProcessor:
         self._new_cache[key] = result
         return result
     
-    def find_and_isolate_duplicates_optimized(self, df: pd.DataFrame, 
-                                            location_threshold: float = 0.001, 
-                                            address_similarity_threshold: float = 0.5) -> pd.DataFrame:
-        """Version optimisée de la détection de doublons avec pré-filtrage spatial."""
+    def find_and_isolate_duplicates_optimized(self, df, location_threshold=0.001,
+                                            address_similarity_threshold=0.5):
         if len(df) < 2:
             return pd.DataFrame()
-        
-        # Pré-filtrage par grille spatiale
-        coords = df['coordonnees'].str.split(', ', expand=True).astype(float)
-        grid_size = location_threshold * 5  # Grille plus large pour capturer les voisins
-        
-        df_work = df.copy()
-        df_work['grid_x'] = (coords.iloc[:, 0] / grid_size).astype(int)
-        df_work['grid_y'] = (coords.iloc[:, 1] / grid_size).astype(int)
-        
-        # Ajouter les grilles voisines pour éviter les effets de bord
-        neighbors = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 0), (0, 1), (1, -1), (1, 0), (1, 1)]
-        
-        duplicates_list = []
-        processed_pairs = set()
-        
-        for _, row in df_work.iterrows():
-            if row.name in processed_pairs:
+        xy = df['coordonnees'].str.split(', ', expand=True).astype(float).to_numpy()
+        grid_size = location_threshold * 5
+        gx = (xy[:, 0] / grid_size).astype(int)
+        gy = (xy[:, 1] / grid_size).astype(int)
+        grid: defaultdict[tuple[int, int], list[int]] = defaultdict(list)
+        for pos, key in enumerate(zip(gx.tolist(), gy.tolist())):
+            grid[key].append(pos)
+        addr = [frozenset(a.lower().split()) for a in df['adresse']]
+        tech = [frozenset(t.split(", ")) for t in df['technologie']]
+        oper = df['operateur'].tolist()
+        act = df['action'].tolist()
+        processed = set()
+        for pos in range(len(df)):
+            if pos in processed:
                 continue
-            
-            # Chercher dans les grilles voisines
-            candidates = []
-            for dx, dy in neighbors:
-                grid_x, grid_y = row['grid_x'] + dx, row['grid_y'] + dy
-                mask = (df_work['grid_x'] == grid_x) & (df_work['grid_y'] == grid_y)
-                candidates.extend(df_work[mask].index.tolist())
-            
-            candidates = list(set(candidates))  # Remove duplicates
-            candidates = [c for c in candidates if c != row.name and c not in processed_pairs]
-            
-            if not candidates:
+            x, y = int(gx[pos]), int(gy[pos])
+            cand_pos = [c for dx in (-1, 0, 1) for dy in (-1, 0, 1)
+                for c in grid.get((x + dx, y + dy), ()) if c != pos and c not in processed]
+            if not cand_pos:
                 continue
-            
-            candidate_rows = df_work.loc[candidates]
-            
-            # Vérifications vectorisées sur les candidats
-            coords_row = np.array([float(x) for x in row['coordonnees'].split(', ')])
-            coords_candidates = np.array([
-                [float(x) for x in coord.split(', ')] 
-                for coord in candidate_rows['coordonnees']
-            ])
-            
-            # Distance euclidienne vectorisée
-            distances = np.sqrt(np.sum((coords_candidates - coords_row) ** 2, axis=1))
-            location_matches = distances <= location_threshold
-            
-            if not location_matches.any():
-                continue
-            
-            # Vérifier la similarité d'adresse et les autres critères
-            for i, candidate_idx in enumerate(candidates):
-                if not location_matches[i]:
+            cand = np.array(cand_pos, dtype=np.intp)
+            dist = np.sqrt(((xy[cand] - xy[pos]) ** 2).sum(axis=1))
+            for c in cand[dist <= location_threshold].tolist():
+                union = addr[pos] | addr[c]
+                sim = len(addr[pos] & addr[c]) / len(union) if union else 0
+                if sim < address_similarity_threshold:
                     continue
-                
-                candidate = df_work.loc[candidate_idx]
-                
-                # Similarité d'adresse simple
-                addr1_tokens = set(row['adresse'].lower().split())
-                addr2_tokens = set(candidate['adresse'].lower().split())
-                intersection = addr1_tokens & addr2_tokens
-                union = addr1_tokens | addr2_tokens
-                addr_similarity = len(intersection) / len(union) if union else 0
-                
-                if addr_similarity < address_similarity_threshold:
-                    continue
-                
-                # Vérifier technologie, opérateur et action
-                tech1 = frozenset(row['technologie'].split(", "))
-                tech2 = frozenset(candidate['technologie'].split(", "))
-                
-                if (tech1 == tech2 and 
-                    row['operateur'] == candidate['operateur'] and 
-                    row['action'] != candidate['action']):
-                    
-                    duplicates_list.extend([row.name, candidate_idx])
-                    processed_pairs.update([row.name, candidate_idx])
-        
-        if duplicates_list:
-            return df.loc[list(set(duplicates_list))]
-        return pd.DataFrame()
+                if tech[pos] == tech[c] and oper[pos] == oper[c] and act[pos] != act[c]:
+                    processed.update((pos, c))
+        return df.iloc[sorted(processed)] if processed else pd.DataFrame()
     
     def merge_and_process_optimized(self, added_path: str, modified_path: str, 
                                   removed_path: str, output_path: str) -> None:
@@ -873,21 +818,25 @@ class OptimizedProcessor:
                         # Vérifier coordonnées différentes
                         coord_diff_mask = pd.Series(False, index=matched_chl.index)
                         
+                        coord_diff_idx = []
+
                         for idx, row in matched_chl.iterrows():
                             lat1, lon1 = parse_coords(row['coordonnees_rem'])
                             lat2, lon2 = parse_coords(row['coordonnees_add'])
-                            
+
                             if lat1 is not None and lat2 is not None:
                                 try:
                                     dist = coord_distance_meters(lat1, lon1, lat2, lon2)
                                     if dist is not None and dist >= 50:  # Seuil de 50 mètres
-                                        coord_diff_mask.loc[idx] = True
-                                except:
+                                        coord_diff_idx.append(idx)
+                                except Exception:
                                     pass
                             elif lat1 != lat2 or lon1 != lon2:
-                                coord_diff_mask.loc[idx] = True
-                        
+                                coord_diff_idx.append(idx)
+
+                        coord_diff_mask = matched_chl.index.isin(coord_diff_idx)
                         matched_chl_filtered = matched_chl[coord_diff_mask].copy()
+
                         if not matched_chl_filtered.empty:
                             idx_rem = matched_chl_filtered['_idx_rem'].tolist()
                             idx_add = matched_chl_filtered['_idx_add'].tolist()
@@ -1190,12 +1139,8 @@ class OptimizedProcessor:
             # Concaténation
             final_df = pd.concat([df for df in all_dfs if not df.empty], ignore_index=True)
 
-            final_df['azimuth_entry'] = final_df.apply(
-                lambda row: f"{row['technologie']}\t{row['list_azimut']}"
-                if pd.notna(row.get('technologie')) and pd.notna(row.get('list_azimut'))
-                else '',
-                axis=1
-            )
+            t, a = final_df['technologie'], final_df['list_azimut']
+            final_df['azimuth_entry'] = (t.astype(str) + '\t' + a.astype(str)).where(t.notna() & a.notna(), '')
             final_df.loc[final_df['action'] == 'CHZ', 'infos'] = final_df.loc[
                 final_df['action'] == 'CHZ'
             ].apply(self.format_azimuth_change, axis=1)
@@ -1326,28 +1271,15 @@ class OptimizedProcessor:
             
             # Arrondi des coordonnées vectorisé
             coords_split = final_df['coordonnees'].str.split(',', expand=True).astype(float)
-            final_df['coordonnees'] = (coords_split.round(4).astype(str)
-                                     .apply(lambda x: ','.join(x), axis=1))
-            
-            # Calcul optimisé des flags is_zb et is_new
-            final_df['technologie_set'] = final_df['technologie'].apply(lambda x: frozenset(x.split(', ')))
+            r = coords_split.round(4).astype(str)
+            final_df['coordonnees'] = r.iloc[:, 0].str.cat(r.iloc[:, 1:], sep=',')
             
             # Calculs par batch pour is_zb
-            unique_pairs = final_df[['id_support', 'operateur']].drop_duplicates()
-            zb_results = {}
-            new_results = {}
-            
-            for _, row in unique_pairs.iterrows():
-                key = (row['id_support'], row['operateur'])
-                zb_results[key] = self.is_zb_cached(row['id_support'], row['operateur'])
-                new_results[key] = self.is_new_cached(row['id_support'], row['operateur'])
-            
-            # Application vectorisée des résultats
-            final_df['is_zb'] = final_df.apply(lambda x: zb_results.get((x['id_support'], x['operateur']), False), axis=1)
-            final_df['is_new'] = final_df.apply(lambda x: new_results.get((x['id_support'], x['operateur']), False), axis=1)
-            
-            # Nettoyage final
-            final_df = final_df.drop('technologie_set', axis=1)
+            keys = list(zip(final_df['id_support'], final_df['operateur']))
+            zb_results = {k: self.is_zb_cached(*k) for k in set(keys)}
+            new_results = {k: self.is_new_cached(*k) for k in set(keys)}
+            final_df['is_zb'] = [zb_results[k] for k in keys]
+            final_df['is_new'] = [new_results[k] for k in keys]
             
             # Génération des fichiers par opérateur avec des filtres vectorisés
             operator_mapping = {
@@ -1393,16 +1325,19 @@ def main(no_insee, no_process, debug):
 
     # Chargement des données une seule fois au début
     functions_anfr.log_message("Début du chargement des fichiers CSV principaux...", "INFO")
+    NEEDED_COLS = {"sup_id", "adm_lb_nom", "emr_lb_systeme", "list_azimut", "statut"}
     try:
         # Chargement complet pour extract_tech_dict et build_new_status_map
         functions_anfr.log_message(f"Chargement de {os.path.basename(OLD_CSV_PATH)}...", "INFO")
         sep_o = functions_anfr.detect_separator(OLD_CSV_PATH)
-        df_old = pd.read_csv(OLD_CSV_PATH, on_bad_lines="skip", dtype=str, sep=sep_o, engine='c')
+        df_old = pd.read_csv(OLD_CSV_PATH, on_bad_lines="skip", dtype=str, sep=sep_o, engine='c',
+                     usecols=lambda c: c in NEEDED_COLS)
         functions_anfr.log_message(f"✓ {os.path.basename(OLD_CSV_PATH)} chargé ({len(df_old):,} lignes)", "INFO")
         
         functions_anfr.log_message(f"Chargement de {os.path.basename(NEW_CSV_PATH)}...", "INFO")
         sep_n = functions_anfr.detect_separator(NEW_CSV_PATH)
-        df_new = pd.read_csv(NEW_CSV_PATH, on_bad_lines="skip", dtype=str, sep=sep_n, engine='c')
+        df_new = pd.read_csv(NEW_CSV_PATH, on_bad_lines="skip", dtype=str, sep=sep_n, engine='c',
+                     usecols=lambda c: c in NEEDED_COLS)
         functions_anfr.log_message(f"✓ {os.path.basename(NEW_CSV_PATH)} chargé ({len(df_new):,} lignes)", "INFO")
         
         # Vérifier les colonnes nécessaires pour tech extraction
@@ -1431,14 +1366,10 @@ def main(no_insee, no_process, debug):
         processor.techs_new_map = processor.extract_tech_dict_optimized(df_new)
         functions_anfr.log_message(f"✓ Index tech NEW créé ({len(processor.techs_new_map):,} entrées)", "INFO")
         if 'list_azimut' in df_new.columns:
-            for (support_id, operator), site_df in df_new.groupby(['sup_id', 'adm_lb_nom']):
-                processor.new_azimuth_map[(support_id, operator)] = [
-                    f"{technology}\t{azimuth}"
-                    for technology, azimuth in zip(
-                        site_df['emr_lb_systeme'], site_df['list_azimut']
-                    )
-                    if pd.notna(technology) and pd.notna(azimuth)
-                ]
+            d = df_new.dropna(subset=['sup_id', 'adm_lb_nom', 'emr_lb_systeme', 'list_azimut'])
+            for key, entry in zip(zip(d['sup_id'], d['adm_lb_nom']),
+                                d['emr_lb_systeme'] + '\t' + d['list_azimut']):
+                processor.new_azimuth_map[key].append(entry)
     else:
         processor.techs_new_map = {}
         
